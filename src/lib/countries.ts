@@ -60,7 +60,7 @@ export const SUPPORTED_COUNTRIES: Country[] = [
     lagMonths: 2,
     updateDayOfMonth: 1,
     supportedTradeTypes: ['IMPORT', 'EXPORT'],
-    rateLimitPerMinute: 600,
+    rateLimitPerMinute: 0,
     autoSyncPeriods: calculatePeriods(2, 1),
     hsCodeCount: 10008,
     invalidHsCodeCount: 0,
