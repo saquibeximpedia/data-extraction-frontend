@@ -7,37 +7,45 @@ import { useApp } from '@/lib/store';
 import { Icon, ThemeToggle } from './ui';
 
 const TABS = [
-  { href: '/', label: 'Overview' },
-  { href: '/runs', label: 'Runs' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/extract', label: 'Extract' },
+  { href: '/extractions', label: 'Extractions' },
   { href: '/files', label: 'Files' },
 ];
+const ADMIN_TAB = { href: '/admin', label: 'Admin' };
 
 /**
- * Floating glass navigation: pages on the left, theme and log out on the right.
+ * Floating glass navigation: pages on the left (Admin for admins), theme and sign out on the right.
  * The raised pill marks the current page only; hover is a faint tint.
  * Clicking a tab tells the layout, which shows that page's skeleton until it renders.
  */
 export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void }) {
   const pathname = usePathname();
-  const { runs, files, logout } = useApp();
+  const { runs, files, me, isAdmin, signOut } = useApp();
+  const tabs = isAdmin ? [...TABS, ADMIN_TAB] : TABS;
   const runningCount = runs?.filter((r) => r.status === 'RUNNING').length ?? 0;
 
-  const activeIndex = Math.max(0, TABS.findIndex((t) => (t.href === '/' ? pathname === '/' : pathname.startsWith(t.href))));
+  // '/extract' must not light up for '/extractions'
+  const activeIndex = Math.max(0, tabs.findIndex((t) => (t.href === '/' ? pathname === '/' : pathname === t.href || pathname.startsWith(t.href + '/'))));
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
 
   useLayoutEffect(() => {
     const place = () => {
       const el = tabRefs.current[activeIndex];
-      if (el) setIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+      if (!el) return;
+      setIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+      // On phones the tab pill scrolls sideways; keep the current page's tab in view
+      const nav = el.parentElement;
+      if (nav && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: el.offsetLeft - (nav.clientWidth - el.offsetWidth) / 2 });
     };
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [activeIndex, runningCount, files?.length]);
+  }, [activeIndex, runningCount, files?.length, tabs.length]);
 
   const badges: Record<string, React.ReactNode> = {
-    '/runs': runningCount > 0 ? <span className="nav-badge live">{runningCount}</span> : null,
+    '/extractions': runningCount > 0 ? <span className="nav-badge live">{runningCount}</span> : null,
     '/files': files?.length ? <span className="nav-badge">{files.length}</span> : null,
   };
 
@@ -45,7 +53,7 @@ export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void 
     <header className="nav-wrap">
       <nav className="nav glass" aria-label="Pages">
         {indicator && <span className="nav-indicator" style={{ transform: `translateX(${indicator.left}px)`, width: indicator.width }} />}
-        {TABS.map((t, i) => (
+        {tabs.map((t, i) => (
           <Link
             key={t.href}
             href={t.href}
@@ -67,9 +75,9 @@ export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void 
 
       <div className="nav-side">
         <ThemeToggle />
-        <button type="button" className="glass-btn glass" onClick={logout}>
+        <button type="button" className="glass-btn glass" onClick={signOut} title={me ? `Signed in as ${me.email}${isAdmin ? ' (admin)' : ''}` : undefined}>
           <Icon.Logout size={15} />
-          Log out
+          <span className="glass-btn-label">Sign out</span>
         </button>
       </div>
     </header>

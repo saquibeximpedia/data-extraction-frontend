@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './index';
 import { Icon } from './icons';
 
@@ -42,7 +43,8 @@ export function ConfirmModal({
 
   if (!open) return null;
 
-  return (
+  // Rendered into <body> so a transformed ancestor (e.g. an animated panel) can't trap the overlay
+  return createPortal(
     <div
       className="modal-backdrop"
       onClick={(e) => {
@@ -55,8 +57,8 @@ export function ConfirmModal({
     >
       <div className="modal-card surface-pop" ref={cardRef}>
         <div className="modal-head">
-          <div className="modal-icon-wrap modal-icon-danger">
-            <Icon.Trash size={18} />
+          <div className={`modal-icon-wrap ${confirmVariant === 'danger' ? 'modal-icon-danger' : 'modal-icon-neutral'}`}>
+            {confirmVariant === 'danger' ? <Icon.Trash size={18} /> : <Icon.Lock size={18} />}
           </div>
           <div className="modal-title-group">
             <h3 className="modal-title">{title}</h3>
@@ -87,12 +89,13 @@ export function ConfirmModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
 export function formatLogMessage(msg: string) {
-  if (msg.includes('no data')) {
+  if (msg.includes(': 0 records')) {
     return <span className="log-dim">{msg}</span>;
   }
   if (msg.includes('Saved CSV file') || msg.includes('Extraction completed')) {

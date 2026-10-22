@@ -1,8 +1,15 @@
-// Shapes returned by the Express API (see ../src/types and controllers in the backend)
+// Shapes returned by the Express API (see the backend's src/types and controllers)
 
 export type TradeFlow = 'IMPORT' | 'EXPORT';
 export type RunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'INTERRUPTED' | 'STOPPED';
 export type RunTrigger = 'SCHEDULED' | 'AUTO_SYNC_API' | 'MANUAL_EXTRACT';
+export type Role = 'admin' | 'user';
+
+export interface Me {
+  id: string;
+  email: string;
+  role: Role;
+}
 
 export interface RunLog {
   timestamp: string;
@@ -10,53 +17,102 @@ export interface RunLog {
   message: string;
 }
 
+export interface CountrySource {
+  name: string;
+  url: string;
+  endpoint: string;
+  method: string;
+  output: string;
+}
+
+/**
+ * GET /api/countries.
+ * kind 'api': extracted by the backend; 'manual': download-only (files come from the source website)
+ */
 export interface Country {
   code: string;
   name: string;
+  kind: 'api' | 'manual';
   enabled: boolean;
   missingConfig: string[];
+  source: CountrySource;
+  notes: string;
   lagMonths: number;
-  updateDayOfMonth: number;
-  supportedTradeTypes: TradeFlow[];
-  rateLimitPerMinute: number;
-  autoSyncPeriods: string[]; // "YYYY-MM", oldest first
+  defaultLagMonths: number;
+  publishDay: number;
+  tradeTypes: TradeFlow[];
+  hsCodeHint: string;
   hsCodeCount: number; // size of the server-side saved list (codes are never sent)
-  invalidHsCodeCount: number;
-  testHsCodeCount?: number;
-  hasTestCodes?: boolean;
+  testHsCodeCount: number;
+  recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out
+  completedMonths: string[]; // marked completed by users, oldest first
+  latestCompleted: string | null;
+  lastExtractedAt: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+/** Admin-editable country fields */
+export interface CountryPatch {
+  name?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  endpoint?: string;
+  method?: string;
+  output?: string;
+  notes?: string;
+  lagMonths?: number;
+  publishDay?: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: Role;
+  createdAt: string;
+  lastSignInAt: string | null;
 }
 
 export interface Health {
   status?: string;
   environment?: string;
   isProd?: boolean;
-  scheduler: { enabled: boolean; cron: string; autoSyncRunning: boolean; lookbackMonths: number };
-  summary: {
-    totalTasks: number;
-    byStatus: { IN_PROGRESS: number; COMPLETED: number; NO_DATA: number; FAILED: number };
-    countriesCount: number;
-    latestRun?: { id: string; status: RunStatus; startedAt: string };
-  };
+}
+
+export interface RunFlag {
+  countryCode: string;
+  kind: 'EMPTY_STREAK' | 'EMPTY_MONTH';
+  message: string;
+  at: string;
 }
 
 export interface RunStats {
-  planned?: number; // missing on runs recorded before progress tracking
+  planned?: number;
   completed: number;
   noData: number;
   failed: number;
   skipped: number;
-  unpublishedPeriods: Record<string, string[]>;
-  invalidHsCodes: Record<string, string[]>;
+  flags?: RunFlag[];
+  unpublishedPeriods?: Record<string, string[]>;
+  invalidHsCodes?: Record<string, string[]>;
   files: string[];
+}
+
+export interface RunPlan {
+  countryCode: string;
+  periods: string[];
+  tradeTypes?: TradeFlow[];
+  hsCodeSource?: 'complete' | 'test' | 'custom';
+  hsCodeCount?: number;
+  hsCodes?: string[];
 }
 
 export interface Run {
   id: string;
   trigger: RunTrigger;
   status: RunStatus;
-  params?: Record<string, any>;
+  params?: { plans?: RunPlan[]; startedBy?: string };
   stats: RunStats;
-  logs?: RunLog[];
   error?: string;
   startedAt: string;
   finishedAt?: string;
@@ -67,9 +123,13 @@ export interface ExportFile {
   relativePath: string;
   sizeBytes: number;
   modifiedAt: string;
+  countryCode: string | null;
+  period: string | null;
+  /** 'extracted' files are written by runs; 'uploaded' ones were added by users */
+  origin: 'extracted' | 'uploaded';
 }
 
-/** Response of POST /api/extractions and /api/extractions/daily-check: runs start in the background */
+/** Response of POST /api/extractions: runs start in the background */
 export interface RunResponse {
   status: 'ACCEPTED';
   runId: string;

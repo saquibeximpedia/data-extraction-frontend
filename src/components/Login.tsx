@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { supabase, supabaseConfigured } from '@/lib/supabase';
 import { Icon, Spinner, ThemeToggle } from './ui';
 
-/** Access screen: one password field, explained in terms of what this tool does */
-export function Login({ onToken, notice }: { onToken: (token: string) => void; notice?: string }) {
+/** Sign-in screen: email and password of an account an admin created */
+export function Login({ notice }: { notice?: string }) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -13,24 +14,16 @@ export function Login({ onToken, notice }: { onToken: (token: string) => void; n
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!password.trim() || busy) return;
+    if (!email.trim() || !password || busy) return;
     setBusy(true);
     setError('');
-    try {
-      const { token } = await api.login(password.trim());
-      onToken(token);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        // The IP check fails before the password check and tells us which IP the server saw
-        const ip = err.body?.clientIp ? ` Your IP as the server sees it: ${err.body.clientIp}` : '';
-        setError(err.status === 403 && !err.body?.clientIp ? 'That password is not right.' : err.message + ip);
-      } else {
-        setError('The API server is not responding. Is it running?');
-      }
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (signInError) {
+      setError(/invalid login/i.test(signInError.message) ? 'That email and password don’t match an account.' : signInError.message);
       setShakeKey((k) => k + 1);
-    } finally {
-      setBusy(false);
     }
+    // On success the app switches to the dashboard once the API accepts the session
+    setBusy(false);
   }
 
   return (
@@ -42,52 +35,63 @@ export function Login({ onToken, notice }: { onToken: (token: string) => void; n
 
       <main className="access-body">
         <span className="access-eyebrow glass">
-          <span className="dot dot-green" /> Internal tool · allow-listed IPs only
+          <span className="dot dot-green" /> Internal tool · accounts are created by an admin
         </span>
 
         <h1 className="access-title">
           Customs trade data,
           <br />
-          <span className="access-title-muted">pulled every month.</span>
+          <span className="access-title-muted">by country and month.</span>
         </h1>
 
         <p className="access-lead">
-          Government trade statistics, extracted on a daily schedule and saved as one CSV per country and month. Enter the access password
-          from the server to continue.
+          Track which months are complete for each country, run extractions from government sources, and download the files.
         </p>
 
-        <form key={shakeKey} onSubmit={submit} className={`access-form glass ${shakeKey ? 'shake' : ''} ${error ? 'has-error' : ''}`}>
-          <span className="access-form-icon">
-            <Icon.Lock />
-          </span>
-          <input
-            className="access-input"
-            type="password"
-            placeholder="Access password"
-            aria-label="Access password"
-            autoComplete="current-password"
-            autoFocus
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button className="access-go" type="submit" disabled={busy || !password.trim()} aria-label="Unlock">
-            {busy ? <Spinner /> : <Icon.ArrowRight />}
+        <form key={shakeKey} onSubmit={submit} className={`signin-form glass ${shakeKey ? 'shake' : ''} ${error ? 'has-error' : ''}`}>
+          <label className="signin-field">
+            <span>Email</span>
+            <input
+              className="control"
+              type="email"
+              autoComplete="email"
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </label>
+          <label className="signin-field">
+            <span>Password</span>
+            <input
+              className="control"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </label>
+          <button className="btn btn-primary btn-md signin-go" type="submit" disabled={busy || !email.trim() || !password || !supabaseConfigured}>
+            {busy ? <Spinner /> : <Icon.ArrowRight />} Sign in
           </button>
         </form>
 
-        <p className={`access-msg ${error ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>
-          {error || notice || ' '}
+        <p className={`access-msg ${error || !supabaseConfigured ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>
+          {!supabaseConfigured
+            ? 'Supabase is not configured: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.'
+            : error || notice || ' '}
         </p>
 
         <ul className="access-facts">
           <li>
-            <Icon.Clock size={15} /> Checks for new months daily
+            <Icon.Calendar size={15} /> Completed months per country
           </li>
           <li>
-            <Icon.Refresh size={15} /> Retries until the source publishes
+            <Icon.Play size={15} /> Extractions run on the server
           </li>
           <li>
-            <Icon.File size={15} /> One CSV per country-month
+            <Icon.File size={15} /> One file per country-month
           </li>
         </ul>
       </main>

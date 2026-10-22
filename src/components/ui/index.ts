@@ -1,5 +1,5 @@
 export { Button, ButtonLink } from './button';
-export { Badge, Count, Dot } from './badge';
+export { Badge } from './badge';
 export type { Tone } from './badge';
 export { Spinner, Skeleton } from './spinner';
 export { Select } from './select';

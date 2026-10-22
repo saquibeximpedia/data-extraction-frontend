@@ -7,7 +7,7 @@ export default function FilesPage() {
     <>
       <div className="page-head reveal">
         <h1 className="page-title">Files</h1>
-        <p className="page-sub">One CSV per country and month, containing every HS code extracted for it.</p>
+        <p className="page-sub">Extracted CSVs (one per country and month) and files uploaded for download-only countries, stored in Supabase.</p>
       </div>
       <FilesView />
     </>

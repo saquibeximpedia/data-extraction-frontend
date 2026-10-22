@@ -1,87 +1,95 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, getToken, setToken, setUnauthorizedHandler } from './api';
-import { SUPPORTED_COUNTRIES } from './countries';
-import type { Country, ExportFile, Health, Run } from './types';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { api, ApiError, setUnauthorizedHandler } from './api';
+import { supabase } from './supabase';
+import type { Country, ExportFile, Health, Me, Run } from './types';
 
-type AuthState = 'checking' | 'in' | 'out' | 'expired';
+type AuthState = 'checking' | 'in' | 'out';
 
 interface AppState {
   auth: AuthState;
-  login: (token: string) => void;
-  logout: () => void;
+  me: Me | null;
+  isAdmin: boolean;
+  /** Why the last sign-in didn't get through (e.g. IP not allowed), shown on the sign-in screen */
+  authError: string;
+  signOut: () => void;
 
   health: Health | null;
-  countries: Country[];
+  countries: Country[] | null;
   runs: Run[] | null;
   files: ExportFile[] | null;
-
-  /** The country the Overview works with; remembered per browser */
-  selected?: string;
-  setSelected: (code: string) => void;
 
   refreshing: { runs: boolean; files: boolean };
   refreshRuns: () => void;
   refreshFiles: () => void;
-  /** Health + runs + files: call after starting a run */
+  refreshCountries: () => void;
+  /** Replaces one country after an edit, without refetching the list */
+  putCountry: (country: Country) => void;
+  /** Runs + files + countries: call after starting a run or changing data */
   refreshActivity: () => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
 const POLL_MS = 3000;
-const COUNTRY_KEY = 'tx_country';
-
-function readCountry(): string | undefined {
-  try {
-    return localStorage.getItem(COUNTRY_KEY) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
- * Global state for every page: the session, server data, and the selected country.
- * Data loads once after login and polls while a run is in progress, so switching
+ * Global state for every page: the Supabase session, the user's role, and server data.
+ * Data loads once after sign-in and polls while an extraction is running, so switching
  * pages never refetches or loses state.
  */
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<AuthState>('checking');
+  const [me, setMe] = useState<Me | null>(null);
+  const [authError, setAuthError] = useState('');
   const [health, setHealth] = useState<Health | null>(null);
-  const countries = SUPPORTED_COUNTRIES;
+  const [countries, setCountries] = useState<Country[] | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [files, setFiles] = useState<ExportFile[] | null>(null);
-  const [selected, setSelectedState] = useState<string>(() => readCountry() || SUPPORTED_COUNTRIES[0].code);
   const [refreshing, setRefreshing] = useState({ runs: false, files: false });
 
-  // Resume this tab's session if its token is still valid
-  useEffect(() => {
-    setUnauthorizedHandler(() => setAuth('expired'));
-    if (!getToken()) {
-      setAuth('out');
-      return;
-    }
-    api
-      .checkToken()
-      .then(() => setAuth('in'))
-      .catch(() => {
-        setToken('');
-        setAuth('out');
-      });
+  const reset = useCallback(() => {
+    setMe(null);
+    setHealth(null);
+    setCountries(null);
+    setRuns(null);
+    setFiles(null);
+    setAuth('out');
   }, []);
 
-  const setSelected = useCallback((code: string) => {
-    setSelectedState(code);
+  const signOut = useCallback(() => {
+    supabase.auth.signOut().finally(reset);
+  }, [reset]);
+
+  // A Supabase session alone isn't enough: the API must accept it (IP allow-list, deleted accounts)
+  const loadMe = useCallback(async () => {
     try {
-      localStorage.setItem(COUNTRY_KEY, code);
-    } catch {
-      // storage blocked: selection just won't be remembered
+      setMe(await api.me());
+      setAuthError('');
+      setAuth('in');
+    } catch (err) {
+      setAuthError(err instanceof ApiError ? err.message : 'The API server is not responding. Is it running?');
+      await supabase.auth.signOut();
+      reset();
     }
-  }, []);
+  }, [reset]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthError('Your session has expired. Sign in again.');
+      signOut();
+    });
+    supabase.auth.getSession().then(({ data }) => (data.session ? loadMe() : setAuth('out')));
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') loadMe();
+      if (event === 'SIGNED_OUT') reset();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [loadMe, reset, signOut]);
 
   // Errors are handled by the 401 handler, or simply show again on the next refresh
-  const refreshHealth = useCallback(() => api.health().then(setHealth).catch(() => {}), []);
+  const refreshCountries = useCallback(() => api.countries().then(setCountries).catch(() => {}), []);
   const withSpinner = useCallback((key: 'runs' | 'files', task: () => Promise<unknown>) => {
     setRefreshing((r) => ({ ...r, [key]: true }));
     task().finally(() => setRefreshing((r) => ({ ...r, [key]: false })));
@@ -89,58 +97,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const refreshRuns = useCallback(() => withSpinner('runs', () => api.runs(50).then(setRuns).catch(() => {})), [withSpinner]);
   const refreshFiles = useCallback(() => withSpinner('files', () => api.files().then(setFiles).catch(() => {})), [withSpinner]);
   const refreshActivity = useCallback(() => {
-    refreshHealth();
     refreshRuns();
     refreshFiles();
-  }, [refreshHealth, refreshRuns, refreshFiles]);
+    refreshCountries();
+  }, [refreshRuns, refreshFiles, refreshCountries]);
+  const putCountry = useCallback((country: Country) => {
+    setCountries((list) => list?.map((c) => (c.code === country.code ? country : c)) ?? list);
+  }, []);
 
   useEffect(() => {
     if (auth !== 'in') return;
+    api.health().then(setHealth).catch(() => {});
     refreshActivity();
   }, [auth, refreshActivity]);
 
-  // Poll quietly while something is running
-  const running = !!runs?.some((r) => r.status === 'RUNNING') || !!health?.scheduler.autoSyncRunning;
+  // Poll quietly while something is running; refresh everything once it stops
+  const running = !!runs?.some((r) => r.status === 'RUNNING');
+  const wasRunning = useRef(false);
   useEffect(() => {
+    if (wasRunning.current && !running) refreshActivity();
+    wasRunning.current = running;
     if (auth !== 'in' || !running) return;
-    const timer = setInterval(() => {
-      refreshHealth();
-      api.runs(50).then(setRuns).catch(() => {});
-      api.files().then(setFiles).catch(() => {});
-    }, POLL_MS);
+    const timer = setInterval(() => api.runs(50).then(setRuns).catch(() => {}), POLL_MS);
     return () => clearInterval(timer);
-  }, [auth, running, refreshHealth]);
-
-  const login = useCallback((token: string) => {
-    setToken(token);
-    setAuth('in');
-  }, []);
-
-  const logout = useCallback(() => {
-    setToken('');
-    setAuth('out');
-    setHealth(null);
-    setRuns(null);
-    setFiles(null);
-  }, []);
+  }, [auth, running, refreshActivity]);
 
   const value = useMemo<AppState>(
     () => ({
       auth,
-      login,
-      logout,
+      me,
+      isAdmin: me?.role === 'admin',
+      authError,
+      signOut,
       health,
       countries,
       runs,
       files,
-      selected,
-      setSelected,
       refreshing,
       refreshRuns,
       refreshFiles,
+      refreshCountries,
+      putCountry,
       refreshActivity,
     }),
-    [auth, login, logout, health, countries, runs, files, selected, setSelected, refreshing, refreshRuns, refreshFiles, refreshActivity]
+    [auth, me, authError, signOut, health, countries, runs, files, refreshing, refreshRuns, refreshFiles, refreshCountries, putCountry, refreshActivity]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

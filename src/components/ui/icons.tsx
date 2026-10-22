@@ -138,6 +138,23 @@ export const Icon = {
       <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" />
     </Svg>
   ),
+  Search: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m20 20-4.4-4.4" />
+    </Svg>
+  ),
+  Plus: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M12 5v14M5 12h14" />
+    </Svg>
+  ),
+  Pencil: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
+      <path d="m13.5 6.5 4 4" />
+    </Svg>
+  ),
   ArrowDown: ({ size = 16 }: P) => (
     <Svg size={size} strokeWidth={2}>
       <path d="M12 5v14M6 13l6 6 6-6" />

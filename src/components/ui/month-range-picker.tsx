@@ -20,6 +20,7 @@ export interface MonthPreset {
 
 /**
  * Pick a "YYYY-MM" range on a year grid: first click sets the start, second click the end.
+ * With `single`, one click picks one month (start = end).
  * `marked` months get a dot, explained by `markedLabel` (e.g. months already extracted).
  */
 export function MonthRangePicker({
@@ -30,6 +31,7 @@ export function MonthRangePicker({
   presets = [],
   marked = [],
   markedLabel = 'Marked',
+  single = false,
 }: {
   id?: string;
   start: string;
@@ -38,6 +40,7 @@ export function MonthRangePicker({
   presets?: MonthPreset[];
   marked?: string[];
   markedLabel?: string;
+  single?: boolean;
 }) {
   const { open, setOpen, close, rootRef, triggerRef } = usePopover();
   const [year, setYear] = useState(() => Number((end || start || '').slice(0, 4)) || new Date().getFullYear());
@@ -56,6 +59,11 @@ export function MonthRangePicker({
   const today = key(new Date().getFullYear(), new Date().getMonth());
 
   function choose(period: string) {
+    if (single) {
+      onChange(period, period);
+      close();
+      return;
+    }
     if (!anchor) {
       setAnchor(period);
       return;
@@ -88,7 +96,7 @@ export function MonthRangePicker({
       </button>
 
       {open && (
-        <PopoverPanel width={320} role="dialog" aria-label="Choose month range">
+        <PopoverPanel width={320} role="dialog" aria-label={single ? "Choose month" : "Choose month range"}>
           <div className="mp-head">
             <button type="button" className="btn btn-ghost btn-sm btn-icon" onClick={() => setYear((y) => y - 1)} aria-label="Previous year">
               <Icon.ChevronLeft />
@@ -99,7 +107,7 @@ export function MonthRangePicker({
             </button>
           </div>
 
-          <p className="mp-hint">{anchor ? `From ${label(anchor)} — now pick the last month` : 'Pick the first month'}</p>
+          <p className="mp-hint">{single ? 'Pick a month' : anchor ? `From ${label(anchor)} — now pick the last month` : 'Pick the first month'}</p>
 
           <div className="mp-grid" onMouseLeave={() => setHover(null)}>
             {MONTHS.map((m, i) => {

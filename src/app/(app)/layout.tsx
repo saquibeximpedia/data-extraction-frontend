@@ -7,9 +7,9 @@ import { AppHeader } from '@/components/AppHeader';
 import { ListPageSkeleton, OverviewSkeleton } from '@/components/PageSkeletons';
 
 function skeletonFor(href: string) {
-  if (href === '/runs') return <ListPageSkeleton titleWidth={110} />;
-  if (href === '/files') return <ListPageSkeleton titleWidth={100} />;
-  return <OverviewSkeleton />;
+  if (href === '/') return <ListPageSkeleton titleWidth={140} />;
+  if (href === '/extract') return <OverviewSkeleton />;
+  return <ListPageSkeleton titleWidth={130} />;
 }
 
 /**
@@ -23,7 +23,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<string | null>(null);
 
   useEffect(() => {
-    if (auth === 'out' || auth === 'expired') router.replace(auth === 'expired' ? '/login?expired=1' : '/login');
+    if (auth === 'out') router.replace('/login');
   }, [auth, router]);
 
   // The new page has rendered once the path changes

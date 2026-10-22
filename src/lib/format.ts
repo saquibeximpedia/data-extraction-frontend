@@ -26,26 +26,10 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-/** Turns common cron shapes into words, e.g. "0 3 * * *" -> "every day at 03:00" */
-export function describeCron(cron: string): string {
-  const p = cron.trim().split(/\s+/);
-  if (p.length !== 5 || isNaN(Number(p[0])) || isNaN(Number(p[1]))) return `on cron "${cron}"`;
-  const time = `${p[1].padStart(2, '0')}:${p[0].padStart(2, '0')}`;
-  if (p[2] === '*' && p[3] === '*' && p[4] === '*') return `every day at ${time}`;
-  if (p[3] === '*' && p[4] === '*' && !isNaN(Number(p[2]))) return `on day ${p[2]} of each month at ${time}`;
-  return `on cron "${cron}"`;
-}
-
 export const TRIGGER_LABELS: Record<string, string> = {
-  SCHEDULED: 'Daily schedule',
-  AUTO_SYNC_API: 'Daily check (manual)',
-  MANUAL_EXTRACT: 'Manual extraction',
-};
-
-export const HS_RULES: Record<string, string> = {
-  IDN: 'Indonesia needs 8-digit codes.',
-  THA: 'Thailand accepts 4 to 11 digits.',
-  ZAF: 'South Africa uses 8-digit tariff lines; 4 or 6 digits return every line under that heading.',
+  SCHEDULED: 'Daily schedule (retired)',
+  AUTO_SYNC_API: 'Daily check (retired)',
+  MANUAL_EXTRACT: 'Extraction',
 };
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -56,4 +40,25 @@ export function fmtDuration(from: string, to: string): string {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+/** "2026-01"…"2026-09" -> "Jan 2026 – Sep 2026" (one month shows once) */
+export function fmtRange(periods: string[]): string {
+  if (!periods.length) return '';
+  const first = periods[0];
+  const last = periods[periods.length - 1];
+  return first === last ? fmtMonth(first) : `${fmtMonth(first)} – ${fmtMonth(last)}`;
+}
+
+/** What a run covered, e.g. "ZAF · Jan 2026 – Sep 2026 · 10,008 saved codes · import & export" */
+export function describePlan(plan: { countryCode: string; periods?: string[]; tradeTypes?: string[]; hsCodeSource?: string; hsCodeCount?: number; hsCodes?: string[] }): string {
+  const count = plan.hsCodeCount ?? plan.hsCodes?.length;
+  const codes =
+    count === undefined
+      ? ''
+      : plan.hsCodeSource === 'custom'
+        ? `${count.toLocaleString()} custom code${count === 1 ? '' : 's'}`
+        : `${count.toLocaleString()} ${plan.hsCodeSource === 'test' ? 'test' : 'saved'} codes`;
+  const flows = plan.tradeTypes?.length ? plan.tradeTypes.map((t) => t.toLowerCase()).join(' & ') : '';
+  return [plan.countryCode, fmtRange(plan.periods ?? []), codes, flows].filter(Boolean).join(' · ');
 }
