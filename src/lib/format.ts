@@ -45,6 +45,7 @@ export const TRIGGER_LABELS: Record<string, string> = {
 export const HS_RULES: Record<string, string> = {
   IDN: 'Indonesia needs 8-digit codes.',
   THA: 'Thailand accepts 4 to 11 digits.',
+  ZAF: 'South Africa uses 8-digit tariff lines; 4 or 6 digits return every line under that heading.',
 };
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
