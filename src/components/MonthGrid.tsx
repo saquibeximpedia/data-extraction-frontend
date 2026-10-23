@@ -3,50 +3,45 @@
 import Link from 'next/link';
 import type { Country } from '@/lib/types';
 import { fmtMonth } from '@/lib/format';
-import { MONTH_LABELS, nowPeriod, yearPeriods } from '@/lib/months';
+import { MONTH_LABELS, monthState, nowPeriod, yearPeriods, type MonthState } from '@/lib/months';
+import { useExtractability } from '@/lib/hooks';
 import { Icon } from './ui';
+
+const STATE_LABEL: Record<MonthState, string> = { completed: 'Completed', extracting: 'Extracting', none: 'Not done' };
+
+/** Painting handlers: the edit mode of the grid (see MonthPainter) */
+export interface PaintHandlers {
+  /** Month → its staged status, for months whose status will change on save */
+  staged: Map<string, MonthState>;
+  onPress: (period: string, e: React.PointerEvent | React.MouseEvent) => void;
+  onYear: (periods: string[]) => void;
+}
 
 /**
  * A country's months, one row per year: completed months are green, extracting ones amber.
- * Read-only unless `onToggle` is given (the edit page), which makes months and years selectable.
+ * Read-only unless `paint` is given, which makes months and years paintable.
  */
-export function MonthGrid({
-  country,
-  years,
-  selected,
-  onToggle,
-  compact,
-}: {
-  country: Country;
-  years: number[];
-  selected?: Set<string>;
-  onToggle?: (periods: string[]) => void;
-  compact?: boolean;
-}) {
+export function MonthGrid({ country, years, paint, compact }: { country: Country; years: number[]; paint?: PaintHandlers; compact?: boolean }) {
   const current = nowPeriod();
-  const completed = new Set(country.completedMonths);
-  const extracting = new Set(country.extractingMonths);
+  const stateOf = (p: string) => paint?.staged.get(p) ?? monthState(country, p);
 
   return (
-    <div className={`year-grid ${compact ? 'compact' : ''}`} role="group" aria-label={`${country.name} months`}>
+    <div className={`year-grid ${compact ? 'compact' : ''} ${paint ? 'painting' : ''}`} role="group" aria-label={`${country.name} months`}>
       {years.map((year) => {
         const periods = yearPeriods(year).filter((p) => p <= current);
+        const done = periods.filter((p) => stateOf(p) === 'completed').length;
         const label = (
           <>
-            {year}
-            <span className="year-count">{periods.filter((p) => completed.has(p)).length}/12</span>
+            <span>{year}</span>
+            <span className="year-count">
+              {done}/{periods.length}
+            </span>
           </>
         );
         return (
           <div key={year} className="year-row">
-            {onToggle ? (
-              <button
-                type="button"
-                className="year-label"
-                onClick={() => onToggle(periods)}
-                title={`Select every month of ${year}`}
-                aria-pressed={periods.length > 0 && periods.every((p) => selected?.has(p))}
-              >
+            {paint ? (
+              <button type="button" className="year-label" onClick={() => paint.onYear(periods)} title={`Paint every month of ${year}`}>
                 {label}
               </button>
             ) : (
@@ -54,17 +49,29 @@ export function MonthGrid({
             )}
             <div className="month-cells">
               {yearPeriods(year).map((p, i) => {
-                const state = completed.has(p) ? 'done' : extracting.has(p) ? 'extracting' : '';
-                const className = `month-cell ${state} ${selected?.has(p) ? 'selected' : ''} ${p > current ? 'future' : ''}`;
-                const title = `${fmtMonth(p)}${state === 'done' ? ' · completed' : state ? ' · extracting' : ''}`;
+                const state = stateOf(p);
+                const changed = paint?.staged.has(p);
+                const future = p > current;
+                const className = `month-cell state-${state} ${changed ? 'changed' : ''} ${future ? 'future' : ''}`;
+                const title = `${fmtMonth(p)} · ${STATE_LABEL[state]}${changed ? ` (was ${STATE_LABEL[monthState(country, p)].toLowerCase()})` : ''}`;
                 const content = (
                   <>
-                    {state === 'done' && <Icon.Check size={11} />}
+                    {state === 'completed' && <Icon.Check size={11} />}
                     {MONTH_LABELS[i]}
                   </>
                 );
-                return onToggle ? (
-                  <button key={p} type="button" className={className} title={title} disabled={p > current} onClick={() => onToggle([p])} aria-pressed={selected?.has(p)}>
+                return paint ? (
+                  <button
+                    key={p}
+                    type="button"
+                    data-period={p}
+                    className={className}
+                    title={title}
+                    disabled={future}
+                    onPointerDown={(e) => paint.onPress(p, e)}
+                    // Keyboard (Enter/Space) clicks have detail 0; pointer presses are handled above
+                    onClick={(e) => e.detail === 0 && paint.onPress(p, e)}
+                  >
                     {content}
                   </button>
                 ) : (
@@ -84,34 +91,46 @@ export function MonthGrid({
 export function MonthLegend() {
   return (
     <div className="month-legend">
-      <span>
-        <i className="legend-swatch done" /> Completed
-      </span>
-      <span>
-        <i className="legend-swatch extracting" /> Extracting
-      </span>
-      <span>
-        <i className="legend-swatch" /> Not done
-      </span>
+      {(['completed', 'extracting', 'none'] as const).map((s) => (
+        <span key={s}>
+          <i className={`legend-swatch state-${s}`} /> {STATE_LABEL[s]}
+        </span>
+      ))}
     </div>
   );
 }
 
-/** Link to the page where a country's months are changed */
-export function EditMonthsLink({ code, button }: { code: string; button?: boolean }) {
+/** The latest months the source should have out, as a row of small squares (oldest first) */
+export function MonthStrip({ country }: { country: Country }) {
   return (
-    <Link href={`/countries/${code}/edit`} className={button ? 'btn btn-secondary btn-sm' : 'link'}>
-      <Icon.Pencil size={13} /> Edit months
-    </Link>
+    <div className="month-strip" aria-label={`${country.name}, last ${country.recentPeriods.length} published months`}>
+      {country.recentPeriods.map((p) => {
+        const state = monthState(country, p);
+        return <span key={p} className={`strip-cell state-${state}`} title={`${fmtMonth(p)} · ${STATE_LABEL[state]}`} />;
+      })}
+    </div>
   );
 }
 
-/** Starts an extraction (or, for download-only countries, getting files) for a country */
-export function ExtractLink({ country }: { country: Country }) {
+/**
+ * The country's main action: Extract (only while the extraction service is live and can extract
+ * it) or, for download-only countries, Upload files. Renders nothing otherwise.
+ */
+export function ExtractLink({ country, size = 'sm' }: { country: Country; size?: 'sm' | 'md' }) {
+  const extractability = useExtractability();
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (country.kind === 'manual') {
+    return (
+      <Link href={`/countries/${country.code}#upload`} className={`btn btn-secondary btn-${size}`} onClick={stop}>
+        <Icon.Upload size={14} /> Upload files
+      </Link>
+    );
+  }
+  const { ok, reason } = extractability(country.code);
+  if (!ok) return reason === 'offline' ? null : <span className="faint nowrap cell-note" title={reason}>Not available</span>;
   return (
-    <Link href={`/extract?country=${country.code}`} className="btn btn-primary btn-sm" onClick={(e) => e.stopPropagation()}>
-      {country.kind === 'manual' ? <Icon.Download size={14} /> : <Icon.Play size={14} />}
-      {country.kind === 'manual' ? 'Get files' : 'Extract'}
+    <Link href={`/extract?country=${country.code}`} className={`btn btn-primary btn-${size}`} onClick={stop}>
+      <Icon.Play size={14} /> Extract
     </Link>
   );
 }

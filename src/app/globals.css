@@ -358,7 +358,6 @@ a { color: inherit; text-decoration: none; }
 /* ============================================================
    Runs & files
    ============================================================ */.group-chevron { display: grid; color: var(--muted); transition: transform 0.2s var(--ease); }
-.group-chevron.closed { transform: rotate(-90deg); }
 
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
@@ -1040,27 +1039,13 @@ a { color: inherit; text-decoration: none; }
 .search-input::placeholder { color: var(--faint); }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; user-select: none; }
 .check { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; flex: none; }
-.bulk-bar {
-  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 22px;
-  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); transition: background 0.15s;
-}
-.bulk-bar.on { background: var(--accent-soft); }
 .bulk-text { flex: 1; font-size: 13px; color: var(--text-2); }
-.file-group + .file-group { border-top: 1px solid var(--line-strong); }
-.file-group-head { display: flex; align-items: center; gap: 12px; padding: 12px 22px; }
-.file-group-toggle { flex: 1; display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
-.file-group-toggle .code-avatar { width: 26px; height: 26px; }
-.file-year-head { display: flex; align-items: center; gap: 12px; padding: 8px 22px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--hover); }
-.files-table td { padding-top: 10px; padding-bottom: 10px; }
-.cell-check { width: 38px; padding-right: 0 !important; }
 
 /* Forms */
 .inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }.btn-danger-ghost { color: var(--red); }
 .remove-warning { display: grid; gap: 12px; }
 
-@media (max-width: 760px) {  .bulk-bar { flex-wrap: wrap; padding: 8px 16px; }
-  .file-group-head, .file-year-head { padding-left: 16px; padding-right: 16px; }
-  .col-updated { display: none; }
+@media (max-width: 760px) {  .col-updated { display: none; }
   /* Four tabs plus the side buttons must fit a phone: log out keeps only its icon */
   .glass-btn-label { display: none; }
   .nav-side .glass-btn { padding: 0 12px; }
@@ -1103,14 +1088,7 @@ a { color: inherit; text-decoration: none; }
 }
 .month-cell:hover:not(:disabled) { border-color: var(--accent-line); }
 .month-cell:disabled { opacity: 0.35; cursor: default; }
-.month-cell.done { background: var(--green-soft); border-color: transparent; color: var(--green); font-weight: 600; }
-.month-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.month-cell.done.selected { border-color: var(--accent); }
 .earlier-years { justify-self: start; margin-top: 2px; }
-.card-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line-strong); }
-.selection-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.range-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.range-form .field-help { margin: 0; }
 .range-picker { width: 240px; }
 
 /* ============================================================
@@ -1151,13 +1129,9 @@ a { color: inherit; text-decoration: none; }
 span.month-cell, .year-label.static { cursor: default; }
 .year-label.static:hover { border-color: var(--line-strong); }
 .month-cell.future { opacity: 0.35; }
-.month-cell.extracting { background: var(--amber-soft); border-color: transparent; color: var(--amber); font-weight: 600; }
-.month-cell.extracting.selected { border-color: var(--accent); }
 .month-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .month-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend-swatch { width: 12px; height: 12px; border-radius: 4px; background: var(--well-bg); border: 1px solid var(--well-border); }
-.legend-swatch.done { background: var(--green-soft); border-color: var(--green); }
-.legend-swatch.extracting { background: var(--amber-soft); border-color: var(--amber); }
 .year-grid + .note, .note + .year-grid { margin-top: 14px; }
 .year-grid.compact { gap: 12px; }
 .year-grid.compact .year-row { grid-template-columns: 1fr; gap: 6px; }
@@ -1170,15 +1144,6 @@ span.month-cell, .year-label.static { cursor: default; }
 .summary-tile { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: var(--r-field); background: var(--well-bg); border: 1px solid var(--well-border); }
 .summary-value { font-family: var(--display); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 
-.file-year-count { font-weight: 400; margin-left: auto; }
-.files-table tr.month-start td { border-top: 1px solid var(--line-strong); }
-.files-table tbody tr:first-child td { border-top: 0; }
-.files-table td { border-bottom-color: transparent; }
-.cell-month { width: 110px; font-weight: 600; white-space: nowrap; }
-.file-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.file-name svg { color: var(--faint); flex: none; }
-.file-name span { overflow-wrap: anywhere; }
-
 .chip-link { display: inline-flex; align-items: center; text-decoration: none; }
 .admin-form { max-width: 760px; }
 .country-pick { width: 280px; max-width: 100%; }
@@ -1186,5 +1151,4 @@ span.month-cell, .year-label.static { cursor: default; }
 
 @media (max-width: 760px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cell-month { width: 80px; }
 }

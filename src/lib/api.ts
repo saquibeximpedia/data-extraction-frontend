@@ -1,14 +1,5 @@
 import { supabase } from './supabase';
-import type { AdminUser, Country, CountryPatch, ExportFile, Health, Me, MonthStatus, Role, Run, RunLog, RunResponse } from './types';
-
-/**
- * Where the Express API lives. Set NEXT_PUBLIC_API_URL to override; otherwise it is
- * the host this page was opened on, port 3000 (so LAN access works without config).
- */
-function apiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
-  return `${window.location.protocol}//${window.location.hostname}:3000`;
-}
+import type { AdminUser, Country, CountryPatch, ExportFile, ExtractorInfo, Me, MonthChange, Role, Run, RunLog, RunResponse, ServiceHealth } from './types';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: any) {
@@ -17,9 +8,9 @@ export class ApiError extends Error {
 }
 
 /** The message to show for a failed call */
-export const errorText = (err: unknown) => (err instanceof ApiError ? err.message : 'The API server did not respond.');
+export const errorText = (err: unknown) => (err instanceof ApiError ? err.message : 'The server did not respond.');
 
-/** Called whenever the API rejects the session, so the app can show the sign-in screen */
+/** Called whenever this app's API rejects the session, so the app can show the sign-in screen */
 let onUnauthorized: () => void = () => {};
 export function setUnauthorizedHandler(handler: () => void): void {
   onUnauthorized = handler;
@@ -31,8 +22,8 @@ async function token(): Promise<string> {
   return data.session?.access_token ?? '';
 }
 
-async function send(path: string, options: RequestInit = {}): Promise<Response> {
-  const res = await fetch(apiBase() + path, {
+async function send(url: string, options: RequestInit = {}, signOutOn401 = true): Promise<Response> {
+  const res = await fetch(url, {
     ...options,
     headers: {
       ...(typeof options.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
@@ -42,15 +33,13 @@ async function send(path: string, options: RequestInit = {}): Promise<Response> 
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401) onUnauthorized();
+    if (res.status === 401 && signOutOn401) onUnauthorized();
     throw new ApiError(body.error || `Request failed (HTTP ${res.status})`, res.status, body);
   }
   return res;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return (await (await send(path, options)).json()) as T;
-}
+const request = async <T>(url: string, options: RequestInit = {}): Promise<T> => (await (await send(url, options)).json()) as T;
 
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
 
@@ -62,44 +51,29 @@ function saveFrom(url: string, name?: string): void {
   link.remove();
 }
 
-export interface ExtractBody {
-  countryCode: string;
-  startDate: string;
-  endDate: string;
-  hsCodes?: string;
-  tradeType: string;
-  mode: 'complete' | 'test';
-}
-
+/**
+ * This app's own API (src/app/api): sign-in check, countries and months, extraction history,
+ * files and accounts. Works whether or not the extraction service is running.
+ */
 export const api = {
-  me: () => request<Me>('/api/auth/me'),
-  health: () => request<Health>('/api/health'),
+  me: () => request<Me>('/api/me'),
 
   countries: () => request<{ countries: Country[] }>('/api/countries').then((r) => r.countries),
-  /** Sets a range (start..end) or a list of months to completed (or extracting) */
-  markMonths: (code: string, months: ({ start: string; end: string } | { periods: string[] }) & { status?: MonthStatus }) =>
-    request<{ added: number; country: Country }>(`/api/countries/${code}/months`, json('POST', months)),
-  unmarkMonths: (code: string, periods: string[]) =>
-    request<{ removed: number; country: Country }>(`/api/countries/${code}/months/remove`, json('POST', { periods })),
+  /** Sets each month's status (null clears it) */
+  setMonths: (code: string, changes: MonthChange[]) =>
+    request<{ changed: number; country: Country }>(`/api/countries/${code}/months`, json('POST', { changes })),
 
   // Admin
   updateCountry: (code: string, patch: CountryPatch) => request<Country>(`/api/countries/${code}`, json('PATCH', patch)),
-  createCountry: (body: CountryPatch & { code: string; name: string; sourceUrl: string }) =>
-    request<Country>('/api/countries', json('POST', body)),
+  createCountry: (body: CountryPatch & { code: string; name: string; sourceUrl: string }) => request<Country>('/api/countries', json('POST', body)),
   deleteCountry: (code: string) => request<{ deleted: string }>(`/api/countries/${code}`, { method: 'DELETE' }),
   users: () => request<{ users: AdminUser[] }>('/api/admin/users').then((r) => r.users),
   createUser: (email: string, password: string, role: Role) => request<AdminUser>('/api/admin/users', json('POST', { email, password, role })),
   updateUser: (id: string, patch: { role?: Role; password?: string }) => request<AdminUser>(`/api/admin/users/${id}`, json('PATCH', patch)),
   deleteUser: (id: string) => request<{ deleted: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
 
-  /** Runs in the background (its months are marked extracting); progress shows up on the Extractions page */
-  extract: (body: ExtractBody) => request<RunResponse>('/api/extractions', json('POST', body)),
-
-  runs: (limit = 50) => request<{ runs: Run[] }>(`/api/runs?limit=${limit}`).then((r) => r.runs),
+  runs: (limit = 50, country?: string) => request<{ runs: Run[] }>(`/api/runs?limit=${limit}${country ? `&country=${country}` : ''}`).then((r) => r.runs),
   run: (id: string) => request<Run>(`/api/runs/${id}`),
-  stopRun: (id: string) => request<{ success: boolean; message: string }>(`/api/runs/${id}/stop`, { method: 'POST' }),
-  /** Only a running extraction has logs; the server drops them when it ends */
-  runLogs: (id: string) => request<{ logs: RunLog[] }>(`/api/runs/${id}/logs`).then((r) => r.logs),
 
   files: () => request<{ files: ExportFile[] }>('/api/files').then((r) => r.files),
   deleteFiles: (paths: string[]) => request<{ deleted: string[] }>('/api/files/delete', json('POST', { paths })),
@@ -119,10 +93,78 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 
-  /** Stores a file downloaded from a source website under a country and month */
-  upload: (country: string, period: string, file: File) =>
-    request<{ path: string }>(
-      `/api/files/upload?country=${encodeURIComponent(country)}&period=${period}&name=${encodeURIComponent(file.name)}`,
-      { method: 'PUT', body: file, headers: { 'Content-Type': 'application/octet-stream' } }
-    ),
+  /** Stores a file downloaded from a source website under a country and month (uploaded straight to Storage) */
+  upload: async (country: string, period: string, file: File) => {
+    const target = await request<{ path: string; token: string; bucket: string }>('/api/files/upload', json('POST', { country, period, name: file.name }));
+    const { error } = await supabase.storage.from(target.bucket).uploadToSignedUrl(target.path, target.token, file, { upsert: true });
+    if (error) throw new ApiError(error.message, 502, {});
+    return { path: target.path };
+  },
 };
+
+// ------------------------------------------------------------------ extraction service
+
+const SERVICE_KEY = 'extraction-service-url';
+
+/** The extraction service URL from the build (NEXT_PUBLIC_EXTRACTION_SERVICE_URL), else localhost:3000 */
+export const defaultServiceUrl = () => (process.env.NEXT_PUBLIC_EXTRACTION_SERVICE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
+/** The URL set in Settings on this browser, if any */
+export function savedServiceUrl(): string | null {
+  try {
+    return localStorage.getItem(SERVICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveServiceUrl(url: string | null): void {
+  try {
+    if (url) localStorage.setItem(SERVICE_KEY, url.replace(/\/+$/, ''));
+    else localStorage.removeItem(SERVICE_KEY);
+  } catch {
+    // Storage blocked: the default URL keeps being used
+  }
+}
+
+export const serviceUrl = () => savedServiceUrl() || defaultServiceUrl();
+
+/** Whether a service answers at `base`: its health, or why it didn't */
+export async function checkService(base: string): Promise<{ ok: true; health: ServiceHealth } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/api/health`, { signal: AbortSignal.timeout(5000), cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, error: body?.error || `It answered with HTTP ${res.status}.` };
+    if (body?.status !== 'ok') return { ok: false, error: 'Something answered, but it is not the extraction service.' };
+    return { ok: true, health: body };
+  } catch (err) {
+    return { ok: false, error: err instanceof DOMException && err.name === 'TimeoutError' ? 'No answer within 5 seconds.' : 'Could not reach it (not running, wrong URL, or blocked).' };
+  }
+}
+
+const service = <T>(path: string, options?: RequestInit) =>
+  send(serviceUrl() + path, options, false).then((r) => r.json() as Promise<T>);
+
+/**
+ * The extraction service (the Node backend): it only extracts. It is called straight from the
+ * browser, so a service running on this machine (localhost) works too.
+ */
+export const extractor = {
+  countries: () => service<{ countries: ExtractorInfo[] }>('/api/countries').then((r) => r.countries),
+  /** Runs in the background (its months are marked extracting) */
+  extract: (body: ExtractBody) => service<RunResponse>('/api/extractions', json('POST', body)),
+  /** Extractions running right now */
+  liveRuns: () => service<{ runs: Run[] }>('/api/runs').then((r) => r.runs),
+  stopRun: (id: string) => service<{ success: boolean }>(`/api/runs/${id}/stop`, { method: 'POST' }),
+  /** Only a running extraction has logs; the service drops them when it ends */
+  runLogs: (id: string) => service<{ logs: RunLog[] }>(`/api/runs/${id}/logs`).then((r) => r.logs),
+};
+
+export interface ExtractBody {
+  countryCode: string;
+  startDate: string;
+  endDate: string;
+  hsCodes?: string;
+  tradeType: string;
+  mode: 'complete' | 'test';
+}

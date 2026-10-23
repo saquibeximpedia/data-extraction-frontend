@@ -1,51 +1,33 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { ExportFile } from '@/lib/types';
 import { fmtDate, fmtMonth, fmtRelative, fmtSize, plural } from '@/lib/format';
 import { useChangedKeys } from '@/lib/hooks';
-import { Badge, Button, CodeAvatar, ConfirmModal, Icon, Menu, Skeleton, useToast, type MenuItem } from './ui';
+import { MONTH_LABELS, nowPeriod, yearPeriods } from '@/lib/months';
+import { Button, CodeAvatar, ConfirmModal, Icon, Menu, Skeleton, useToast, type MenuItem } from './ui';
 
-interface MonthGroup {
-  period: string;
-  files: ExportFile[];
-}
-interface YearGroup {
-  year: string;
-  months: MonthGroup[];
-}
-interface CountryGroup {
-  countryCode: string;
-  years: YearGroup[];
-}
-
-/** Groups items by key, keeping the keys sorted (descending when `desc`) */
-function groupBy<T>(items: T[], key: (item: T) => string, desc = false): [string, T[]][] {
-  const map = new Map<string, T[]>();
-  for (const item of items) map.set(key(item), [...(map.get(key(item)) ?? []), item]);
-  return [...map.entries()].sort(([a], [b]) => (desc ? b.localeCompare(a) : a.localeCompare(b)));
-}
-
-/** Country → year → month (newest first) → files */
-function groupFiles(files: ExportFile[]): CountryGroup[] {
-  return groupBy(files, (f) => f.countryCode ?? 'Other').map(([countryCode, list]) => ({
-    countryCode,
-    years: groupBy(list, (f) => f.period?.slice(0, 4) ?? 'Other', true).map(([year, inYear]) => ({
-      year,
-      months: groupBy(inYear, (f) => f.period ?? 'Other', true).map(([period, inMonth]) => ({
-        period,
-        files: inMonth.sort((a, b) => a.origin.localeCompare(b.origin) || a.fileName.localeCompare(b.fileName)),
-      })),
-    })),
-  }));
-}
+const RECENT = 'RECENT';
+type Origin = 'all' | 'extracted' | 'uploaded';
 
 /** Uploaded files are stored as "{CC}_{YYYY-MM}__{original name}"; show the original name */
 const displayName = (f: ExportFile) => (f.origin === 'uploaded' && f.fileName.includes('__') ? f.fileName.split('__').slice(1).join('__') : f.fileName);
-
+const extOf = (f: ExportFile) => f.fileName.split('.').pop()?.toLowerCase() ?? '';
+const sizeOf = (files: ExportFile[]) => files.reduce((n, f) => n + f.sizeBytes, 0);
 const pathsOf = (files: ExportFile[]) => files.map((f) => f.relativePath);
+
+function FileIcon({ file }: { file: ExportFile }) {
+  const ext = extOf(file);
+  return (
+    <span className={`file-icon ext-${ext === 'zip' ? 'zip' : ext === 'csv' ? 'csv' : 'xls'}`} aria-hidden="true">
+      {ext === 'zip' ? <Icon.Archive size={15} /> : <Icon.Sheet size={15} />}
+    </span>
+  );
+}
 
 function Check({ checked, indeterminate, onChange, label }: { checked: boolean; indeterminate?: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -66,37 +48,48 @@ function Check({ checked, indeterminate, onChange, label }: { checked: boolean; 
 export function FilesView() {
   const { files: data, countries, refreshing, refreshFiles } = useApp();
   const toast = useToast();
+  const router = useRouter();
+  const params = useSearchParams();
   const files = data ?? [];
   const loading = data === null;
   const changed = useChangedKeys(files.map((f) => ({ key: f.relativePath, signature: f.modifiedAt })));
 
   const [query, setQuery] = useState('');
-  const [country, setCountry] = useState<string>('ALL');
+  const [origin, setOrigin] = useState<Origin>('all');
+  const [year, setYear] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [zipping, setZipping] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string[] | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const countryName = (code: string) => countries?.find((c) => c.code === code)?.name ?? code;
-  const countryCodes = useMemo(() => [...new Set(files.map((f) => f.countryCode).filter(Boolean) as string[])].sort(), [files]);
+  const filtered = useMemo(() => files.filter((f) => origin === 'all' || f.origin === origin), [files, origin]);
+
+  // Countries with files, by name
+  const groups = useMemo(() => {
+    const map = new Map<string, ExportFile[]>();
+    for (const f of filtered) map.set(f.countryCode ?? 'Other', [...(map.get(f.countryCode ?? 'Other') ?? []), f]);
+    return [...map.entries()].map(([code, list]) => ({ code, files: list })).sort((a, b) => countryName(a.code).localeCompare(countryName(b.code)));
+  }, [filtered, countries]);
+
+  const view = (params.get('country')?.toUpperCase() ?? RECENT) as string;
+  const setView = (code: string) => {
+    setYear(null);
+    router.replace(code === RECENT ? '/files' : `/files?country=${code}`, { scroll: false });
+  };
+  const group = groups.find((g) => g.code === view);
 
   // Search matches the file name, its path, the country and the month as written ("Aug 2026")
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return files.filter((f) => {
-      if (country !== 'ALL' && f.countryCode !== country) return false;
-      if (!q) return true;
-      return [f.fileName, f.relativePath, f.countryCode ? countryName(f.countryCode) : '', f.period ? fmtMonth(f.period) : '']
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
-    });
-  }, [files, query, country, countries]);
-
-  const groups = useMemo(() => groupFiles(visible), [visible]);
-  const allVisible = pathsOf(visible);
-  const selectedBytes = files.filter((f) => selected.has(f.relativePath)).reduce((sum, f) => sum + f.sizeBytes, 0);
+  const q = query.trim().toLowerCase();
+  const results = useMemo(
+    () =>
+      q
+        ? filtered.filter((f) =>
+            [f.fileName, f.relativePath, f.countryCode ? countryName(f.countryCode) : '', f.period ? fmtMonth(f.period) : ''].join(' ').toLowerCase().includes(q)
+          )
+        : [],
+    [filtered, q, countries]
+  );
 
   function toggle(paths: string[], on: boolean) {
     setSelected((prev) => {
@@ -110,15 +103,15 @@ export function FilesView() {
     return { label, checked: paths.length > 0 && n === paths.length, indeterminate: n > 0 && n < paths.length, onChange: (on: boolean) => toggle(paths, on) };
   };
 
-  async function download(paths: string[]) {
-    setZipping(paths.length > 1);
+  async function download(paths: string[], key = paths.join('|')) {
+    setBusy(key);
     try {
       if (paths.length === 1) await api.download(paths[0]);
       else await api.downloadZip(paths);
     } catch (err) {
       toast('err', 'Could not download', errorText(err));
     } finally {
-      setZipping(false);
+      setBusy(null);
     }
   }
 
@@ -144,146 +137,234 @@ export function FilesView() {
       icon: <Icon.Copy size={14} />,
       onSelect: () => navigator.clipboard?.writeText(f.relativePath).then(() => toast('ok', 'Path copied', f.relativePath)),
     },
+    ...(f.countryCode ? [{ label: `Open ${countryName(f.countryCode)}`, icon: <Icon.Calendar size={14} />, href: `/countries/${f.countryCode}` }] : []),
     { label: 'Delete file', icon: <Icon.Trash size={14} />, separator: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
 
-  const toggleCollapsed = (code: string) =>
-    setCollapsed((c) => {
-      const next = new Set(c);
-      next.has(code) ? next.delete(code) : next.add(code);
-      return next;
-    });
-
-  return (
-    <>
-      <section className="panel glass panel-flush reveal" style={{ '--i': 1 } as React.CSSProperties}>
-        <div className="files-toolbar padded">
-          <label className="search">
-            <Icon.Search size={15} />
-            <input
-              type="search"
-              className="search-input"
-              placeholder="Search by file name, country or month"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search files"
-            />
-          </label>
-          <div className="chip-group" role="group" aria-label="Filter by country">
-            {['ALL', ...countryCodes].map((cc) => (
-              <button key={cc} type="button" className={`chip-btn ${country === cc ? 'active' : ''}`} onClick={() => setCountry(cc)}>
-                {cc === 'ALL' ? 'All countries' : cc}
-              </button>
-            ))}
-          </div>
-          <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing.files} onClick={refreshFiles}>
-            Refresh
-          </Button>
-        </div>
-
-        <div className={`bulk-bar ${selected.size ? 'on' : ''}`} aria-live="polite">
-          <Check {...checkFor(allVisible, 'Select all shown files')} />
-          <span className="bulk-text">
-            {selected.size ? `${selected.size} selected · ${fmtSize(selectedBytes)}` : loading ? 'Loading…' : plural(visible.length, 'file')}
-          </span>
-          {selected.size > 0 && (
+  /** One file as a compact row: icon, name, facts, actions */
+  const fileRow = (f: ExportFile, showWhere = false) => (
+    <li key={f.relativePath} className={`file-row ${selected.has(f.relativePath) ? 'selected' : ''} ${changed.has(f.relativePath) ? 'flash' : ''}`}>
+      <Check {...checkFor([f.relativePath], `Select ${f.fileName}`)} />
+      <FileIcon file={f} />
+      <span className="file-row-text" title={f.relativePath}>
+        <span className="file-row-name">{displayName(f)}</span>
+        <span className="file-row-meta">
+          {showWhere && f.countryCode && (
             <>
-              <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={zipping} onClick={() => download([...selected])}>
-                {selected.size === 1 ? 'Download' : `Download ${selected.size} (zip)`}
-              </Button>
-              <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
-                Delete
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-                Clear
-              </Button>
+              <b>{countryName(f.countryCode)}</b> · {f.period ? fmtMonth(f.period) : 'Other'} ·{' '}
             </>
+          )}
+          {fmtSize(f.sizeBytes)} · <span title={fmtDate(f.modifiedAt)}>{fmtRelative(f.modifiedAt)}</span>
+          {f.origin === 'uploaded' && (
+            <>
+              {' '}
+              · <span className="origin-uploaded">uploaded</span>
+            </>
+          )}
+        </span>
+      </span>
+      <span className="file-row-actions">
+        <Button size="sm" variant="ghost" iconOnly aria-label={`Download ${f.fileName}`} title="Download" loading={busy === f.relativePath} icon={<Icon.Download size={15} />} onClick={() => download([f.relativePath])} />
+        <Menu items={fileActions(f)} label="File options" />
+      </span>
+    </li>
+  );
+
+  // ---------------------------------------------------------------- main area
+
+  let main: React.ReactNode;
+  if (loading) {
+    main = (
+      <div className="files-main-pad skeleton-rows">
+        <Skeleton height={28} width={220} />
+        <div className="month-board">
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} height={110} radius={18} />
+          ))}
+        </div>
+      </div>
+    );
+  } else if (q) {
+    main = (
+      <div className="files-main-pad">
+        <div className="files-main-head">
+          <div>
+            <h2 className="panel-title">Search results</h2>
+            <p className="panel-desc">
+              {plural(results.length, 'file')} match “{query.trim()}”
+            </p>
+          </div>
+          {results.length > 0 && <Check {...checkFor(pathsOf(results), 'Select all results')} />}
+        </div>
+        {results.length ? <ul className="file-list">{results.slice(0, 200).map((f) => fileRow(f, true))}</ul> : <p className="empty">No files match.</p>}
+      </div>
+    );
+  } else if (!group) {
+    const recent = filtered.slice(0, 30);
+    main = (
+      <div className="files-main-pad">
+        <div className="files-main-head">
+          <div>
+            <h2 className="panel-title">Recent files</h2>
+            <p className="panel-desc">The latest {recent.length} added or replaced, across every country</p>
+          </div>
+        </div>
+        {recent.length ? (
+          <ul className="file-list">{recent.map((f) => fileRow(f, true))}</ul>
+        ) : (
+          <p className="empty">{files.length ? 'No files of this kind.' : 'No files yet. Run an extraction, or upload files for a download-only country.'}</p>
+        )}
+      </div>
+    );
+  } else {
+    const years = [...new Set(group.files.map((f) => f.period?.slice(0, 4) ?? 'Other'))].sort().reverse();
+    const shownYear = year && years.includes(year) ? year : years[0];
+    const yearFiles = group.files.filter((f) => (f.period?.slice(0, 4) ?? 'Other') === shownYear);
+    const periods = shownYear === 'Other' ? [] : yearPeriods(Number(shownYear));
+    const current = nowPeriod();
+    const monthsWithFiles = new Set(group.files.map((f) => f.period).filter(Boolean)).size;
+    const latest = group.files.map((f) => f.period).filter(Boolean).sort().pop();
+
+    main = (
+      <div className="files-main-pad">
+        <div className="files-main-head">
+          <div className="files-country-title">
+            <CodeAvatar code={group.code} />
+            <div>
+              <h2 className="panel-title">{countryName(group.code)}</h2>
+              <p className="panel-desc">
+                {plural(group.files.length, 'file')} · {fmtSize(sizeOf(group.files))} · {plural(monthsWithFiles, 'month')}
+                {latest ? ` · latest ${fmtMonth(latest)}` : ''}
+              </p>
+            </div>
+          </div>
+          {group.code !== 'Other' && (
+            <Link href={`/countries/${group.code}`} className="btn btn-ghost btn-sm">
+              Months <Icon.ChevronRight size={13} />
+            </Link>
           )}
         </div>
 
-        {loading && (
-          <div className="padded skeleton-rows">
-            <Skeleton height={36} />
-            <Skeleton height={36} />
+        <div className="year-tabs-row">
+          <div className="year-tabs" role="tablist" aria-label="Year">
+            {years.map((y) => {
+              const n = group.files.filter((f) => (f.period?.slice(0, 4) ?? 'Other') === y).length;
+              return (
+                <button key={y} type="button" role="tab" aria-selected={y === shownYear} className={`year-tab ${y === shownYear ? 'active' : ''}`} onClick={() => setYear(y)}>
+                  {y}
+                  <span className="year-tab-count">{n}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="inline-form">
+            <Check {...checkFor(pathsOf(yearFiles), `Select all ${shownYear} files`)} />
+            <Button size="sm" variant="secondary" icon={<Icon.Download size={13} />} loading={busy === `year-${shownYear}`} onClick={() => download(pathsOf(yearFiles), `year-${shownYear}`)}>
+              {yearFiles.length === 1 ? 'Download' : `Download ${shownYear} (${yearFiles.length})`}
+            </Button>
+          </div>
+        </div>
+
+        {shownYear === 'Other' ? (
+          <ul className="file-list">{yearFiles.map((f) => fileRow(f))}</ul>
+        ) : (
+          <div className="month-board">
+            {periods.map((p, i) => {
+              const inMonth = yearFiles.filter((f) => f.period === p).sort((a, b) => a.origin.localeCompare(b.origin) || a.fileName.localeCompare(b.fileName));
+              const future = p > current;
+              return (
+                <div key={p} className={`month-card ${inMonth.length ? 'has-files' : 'empty-month'} ${future ? 'future' : ''}`}>
+                  <div className="month-card-head">
+                    <span className="month-card-name">{MONTH_LABELS[i]}</span>
+                    {inMonth.length > 0 ? (
+                      <>
+                        <span className="month-card-size">{fmtSize(sizeOf(inMonth))}</span>
+                        {inMonth.length > 1 && <Check {...checkFor(pathsOf(inMonth), `Select ${fmtMonth(p)} files`)} />}
+                      </>
+                    ) : null}
+                  </div>
+                  {inMonth.length ? <ul className="file-list compact">{inMonth.map((f) => fileRow(f))}</ul> : <span className="month-card-empty">{future ? 'Not out yet' : 'No file'}</span>}
+                </div>
+              );
+            })}
           </div>
         )}
-        {!loading && groups.length === 0 && (
-          <p className="empty">{files.length ? 'No files match your search.' : 'No files yet. Run an extraction or upload files for a download-only country.'}</p>
-        )}
+      </div>
+    );
+  }
 
-        {groups.map((g) => {
-          const countryFiles = g.years.flatMap((y) => y.months.flatMap((m) => m.files));
-          const isCollapsed = collapsed.has(g.countryCode);
-          return (
-            <div key={g.countryCode} className="file-group">
-              <div className="file-group-head">
-                <Check {...checkFor(pathsOf(countryFiles), `Select all ${g.countryCode} files`)} />
-                <button type="button" className="file-group-toggle" onClick={() => toggleCollapsed(g.countryCode)} aria-expanded={!isCollapsed}>
-                  <span className={`group-chevron ${isCollapsed ? 'closed' : ''}`}>
-                    <Icon.ChevronDown />
-                  </span>
-                  <CodeAvatar code={g.countryCode} />
-                  <span className="cell-strong">{countryName(g.countryCode)}</span>
-                  <span className="cell-sub-color">
-                    {plural(countryFiles.length, 'file')} · {plural(g.years.reduce((n, y) => n + y.months.length, 0), 'month')}
-                  </span>
-                </button>
-              </div>
+  const selectedFiles = files.filter((f) => selected.has(f.relativePath));
 
-              {!isCollapsed &&
-                g.years.map((y) => {
-                  const yearFiles = y.months.flatMap((m) => m.files);
-                  return (
-                    <div key={y.year}>
-                      <div className="file-year-head">
-                        <Check {...checkFor(pathsOf(yearFiles), `Select all ${g.countryCode} ${y.year} files`)} />
-                        <span>{y.year}</span>
-                        <span className="file-year-count">{plural(yearFiles.length, 'file')}</span>
-                      </div>
-                      <div className="table-wrap">
-                        <table className="table files-table">
-                          <tbody>
-                            {y.months.flatMap((m) =>
-                              m.files.map((f, i) => (
-                                <tr key={f.relativePath} className={`${changed.has(f.relativePath) ? 'flash' : ''} ${i === 0 ? 'month-start' : ''}`}>
-                                  <td className="cell-check">
-                                    <Check {...checkFor([f.relativePath], `Select ${f.fileName}`)} />
-                                  </td>
-                                  <td className="cell-month">{i === 0 && (m.period === 'Other' ? 'Other' : fmtMonth(m.period))}</td>
-                                  <td>
-                                    <div className="file-name" title={f.relativePath}>
-                                      <Icon.File size={14} />
-                                      <span>{displayName(f)}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{ width: 110 }}>{f.origin === 'uploaded' ? <Badge tone="blue">Uploaded</Badge> : <Badge tone="green">Extracted</Badge>}</td>
-                                  <td className="cell-sub-color nowrap" style={{ width: 90 }}>
-                                    {fmtSize(f.sizeBytes)}
-                                  </td>
-                                  <td className="cell-sub-color nowrap col-updated" style={{ width: 120 }} title={fmtDate(f.modifiedAt)}>
-                                    {fmtRelative(f.modifiedAt)}
-                                  </td>
-                                  <td className="nowrap" style={{ width: 150, textAlign: 'right' }}>
-                                    <div className="row-actions">
-                                      <Button size="sm" icon={<Icon.Download size={14} />} onClick={() => download([f.relativePath])}>
-                                        Download
-                                      </Button>
-                                      <Menu items={fileActions(f)} label="File options" />
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          );
-        })}
-      </section>
+  return (
+    <>
+      <div className="files-layout reveal" style={{ '--i': 1 } as React.CSSProperties}>
+        <aside className="files-side glass" aria-label="Countries">
+          <label className="search">
+            <Icon.Search size={15} />
+            <input type="search" className="search-input" placeholder="Search files" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search files" />
+            {query && (
+              <button type="button" className="search-clear" onClick={() => setQuery('')} aria-label="Clear search">
+                <Icon.X size={13} />
+              </button>
+            )}
+          </label>
+
+          <div className="origin-filter" role="radiogroup" aria-label="Kind of file">
+            {(['all', 'extracted', 'uploaded'] as Origin[]).map((o) => (
+              <button key={o} type="button" role="radio" aria-checked={origin === o} className={origin === o ? 'active' : ''} onClick={() => setOrigin(o)}>
+                {o === 'all' ? 'All' : o === 'extracted' ? 'Extracted' : 'Uploaded'}
+              </button>
+            ))}
+          </div>
+
+          <nav className="side-list">
+            <button type="button" className={`side-item ${!group && !q ? 'active' : ''}`} onClick={() => (setQuery(''), setView(RECENT))}>
+              <span className="side-icon">
+                <Icon.Clock size={15} />
+              </span>
+              <span className="side-text">
+                <span className="side-name">Recent</span>
+                <span className="side-meta">{loading ? 'Loading…' : `${plural(filtered.length, 'file')} · ${fmtSize(sizeOf(filtered))}`}</span>
+              </span>
+            </button>
+            <span className="side-label">Countries</span>
+            {loading && <Skeleton height={44} radius={14} />}
+            {groups.map((g) => (
+              <button key={g.code} type="button" className={`side-item ${group?.code === g.code && !q ? 'active' : ''}`} onClick={() => (setQuery(''), setView(g.code))}>
+                <CodeAvatar code={g.code} />
+                <span className="side-text">
+                  <span className="side-name">{countryName(g.code)}</span>
+                  <span className="side-meta">
+                    {plural(g.files.length, 'file')} · {fmtSize(sizeOf(g.files))}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {!loading && groups.length === 0 && <span className="side-meta padded-side">No files yet</span>}
+          </nav>
+
+          <Button size="sm" variant="ghost" icon={<Icon.Refresh size={13} />} loading={refreshing.files} onClick={refreshFiles} className="side-refresh">
+            Refresh
+          </Button>
+        </aside>
+
+        <section className="files-main glass">{main}</section>
+      </div>
+
+      <div className={`selection-dock ${selected.size ? 'on' : ''}`} aria-live="polite" aria-hidden={!selected.size}>
+        <div className="selection-dock-inner surface-pop">
+          <span className="bulk-text">
+            <b>{plural(selected.size, 'file')}</b> selected · {fmtSize(sizeOf(selectedFiles))}
+          </span>
+          <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={busy === 'selection'} onClick={() => download([...selected], 'selection')}>
+            {selected.size === 1 ? 'Download' : 'Download zip'}
+          </Button>
+          <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
+            Delete
+          </Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Clear selection" icon={<Icon.X size={14} />} onClick={() => setSelected(new Set())} />
+        </div>
+      </div>
 
       <ConfirmModal
         open={Boolean(toDelete)}
@@ -299,7 +380,7 @@ export function FilesView() {
             ) : (
               <>These files are removed from storage.</>
             )}{' '}
-            Extracting the month again recreates an extracted file.
+            Extracting the month again recreates an extracted file. Month status is not changed.
           </>
         }
         confirmLabel={toDelete && toDelete.length > 1 ? `Delete ${toDelete.length} files` : 'Delete file'}

@@ -1,4 +1,5 @@
-// Shapes returned by the Express API (see the backend's src/types and controllers)
+// Shapes returned by this app's own /api routes (data: countries, months, runs history, files,
+// users) and by the extraction service (health, extractors, live runs, logs).
 
 export type TradeFlow = 'IMPORT' | 'EXPORT';
 export type RunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'INTERRUPTED' | 'STOPPED';
@@ -27,14 +28,30 @@ export interface CountrySource {
   output: string;
 }
 
+/** What the extraction service can do for one country (GET {service}/api/countries) */
+export interface ExtractorInfo {
+  code: string;
+  name: string;
+  enabled: boolean;
+  missingConfig: string[];
+  source: CountrySource;
+  lagMonths: number;
+  publishDay: number;
+  tradeTypes: TradeFlow[];
+  hsCodeHint: string;
+  hsCodeCount: number;
+  testHsCodeCount: number;
+}
+
 /**
  * GET /api/countries.
- * kind 'api': extracted by the backend; 'manual': download-only (files come from the source website)
+ * kind 'api': the extraction service extracts it; 'manual': download-only (files are uploaded)
  */
 export interface Country {
   code: string;
   name: string;
   kind: 'api' | 'manual';
+  /** As last published by the extraction service; the live service may say otherwise */
   enabled: boolean;
   missingConfig: string[];
   source: CountrySource;
@@ -44,7 +61,7 @@ export interface Country {
   publishDay: number;
   tradeTypes: TradeFlow[];
   hsCodeHint: string;
-  hsCodeCount: number; // size of the server-side saved list (codes are never sent)
+  hsCodeCount: number; // size of the service's saved list (codes are never sent)
   testHsCodeCount: number;
   recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out
   completedMonths: string[]; // marked completed by users, oldest first
@@ -54,6 +71,8 @@ export interface Country {
   lastUpdatedAt: string | null; // latest month change or extraction
   updatedAt: string | null;
   updatedBy: string | null;
+  /** When the extraction service last published its details for this country */
+  extractorSyncedAt: string | null;
 }
 
 /** Admin-editable country fields */
@@ -69,6 +88,12 @@ export interface CountryPatch {
   publishDay?: number;
 }
 
+/** One month's new status; null clears it (back to not done) */
+export interface MonthChange {
+  period: string;
+  status: MonthStatus | null;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -77,10 +102,15 @@ export interface AdminUser {
   lastSignInAt: string | null;
 }
 
-export interface Health {
-  status?: string;
+/** GET {service}/api/health */
+export interface ServiceHealth {
+  status: string;
+  service?: string;
   environment?: string;
   isProd?: boolean;
+  startedAt?: string;
+  running?: number;
+  countries?: string[];
 }
 
 export interface RunFlag {
@@ -133,7 +163,7 @@ export interface ExportFile {
   origin: 'extracted' | 'uploaded';
 }
 
-/** Response of POST /api/extractions: runs start in the background */
+/** Response of POST {service}/api/extractions: runs start in the background */
 export interface RunResponse {
   status: 'ACCEPTED';
   runId: string;

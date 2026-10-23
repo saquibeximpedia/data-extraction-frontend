@@ -160,4 +160,62 @@ export const Icon = {
       <path d="M12 5v14M6 13l6 6 6-6" />
     </Svg>
   ),
+  Upload: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M12 15V4M7 9l5-5 5 5" />
+      <path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+    </Svg>
+  ),
+  Gear: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </Svg>
+  ),
+  Folder: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </Svg>
+  ),
+  Sheet: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M8.5 12.5h7M8.5 16h7M12 11v7" />
+    </Svg>
+  ),
+  Archive: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4" />
+    </Svg>
+  ),
+  Plug: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5" />
+    </Svg>
+  ),
+  Grid: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" />
+      <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
+    </Svg>
+  ),
+  List: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />
+    </Svg>
+  ),
+  Brush: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M18.4 3.6a2 2 0 0 1 2.8 2.8L12 15.6 8.4 12z" />
+      <path d="M8.4 12C6 12 4.5 13.6 4.5 16c0 1.5-.8 2.6-1.5 3 3.5.9 9 .3 9-4.4" />
+    </Svg>
+  ),
+  X: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </Svg>
+  ),
 };

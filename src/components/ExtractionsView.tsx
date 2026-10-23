@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, errorText } from '@/lib/api';
+import { api, errorText, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Run, RunLog } from '@/lib/types';
 import { describePlan, fmtDate, fmtDay, fmtDuration, fmtMs, fmtRelative, fmtTime, plural } from '@/lib/format';
@@ -13,6 +13,9 @@ import { Badge, Button, formatLogMessage, Icon, Skeleton, useToast, type Tone } 
 const STATUS_TONE: Record<Run['status'], Tone> = { COMPLETED: 'green', RUNNING: 'blue', FAILED: 'red', INTERRUPTED: 'amber', STOPPED: 'amber' };
 
 function StatusBadge({ run }: { run: Run }) {
+  const { serviceLive } = useApp();
+  // The database says running, but the service that runs it can't be reached to confirm
+  if (run.status === 'RUNNING' && !serviceLive) return <Badge tone="amber">Running? Service offline</Badge>;
   return (
     <Badge tone={STATUS_TONE[run.status]} live={run.status === 'RUNNING'}>
       {run.status.charAt(0) + run.status.slice(1).toLowerCase()}
@@ -108,14 +111,15 @@ function Progress({ run }: { run: Run }) {
 }
 
 function StopButton({ run }: { run: Run }) {
-  const { refreshRuns } = useApp();
+  const { refreshRuns, serviceLive } = useApp();
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
+  if (!serviceLive) return null;
   async function stop(e: React.MouseEvent) {
     e.stopPropagation();
     setStopping(true);
     try {
-      await api.stopRun(run.id);
+      await extractor.stopRun(run.id);
       toast('ok', 'Extraction stopping', 'Requests in flight finish; files are saved for the months that returned rows.');
       refreshRuns();
     } catch (err) {
@@ -172,33 +176,100 @@ function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
   );
 }
 
-type Filter = 'all' | 'running' | 'attention';
+type Filter = 'all' | 'attention';
 
 const needsAttention = (r: Run) => r.status === 'FAILED' || r.status === 'INTERRUPTED' || r.stats.failed > 0 || (r.stats.flags?.length ?? 0) > 0;
 
-/** Extractions page: every extraction, running ones first */
+/** Extractions running on the service right now, with their progress */
+function LiveSection() {
+  const { runs, service, serviceLive } = useApp();
+  const live = (runs ?? []).filter((r) => r.status === 'RUNNING');
+
+  if (service.status === 'offline') {
+    return (
+      <div className="service-note reveal">
+        <span className="dot dot-red" />
+        <span>
+          <b>Live extractions are unavailable:</b> the extraction service at <span className="mono">{service.url}</span> is offline. History below comes from the database.
+        </span>
+        <Link href="/settings" className="btn btn-secondary btn-sm">
+          <Icon.Gear size={13} /> Settings
+        </Link>
+      </div>
+    );
+  }
+  if (!serviceLive) return null;
+
+  return (
+    <section className="live-section reveal" style={{ '--i': 1 } as React.CSSProperties} aria-label="Running now">
+      <div className="section-head">
+        <h2 className="section-title">
+          <span className="dot dot-green dot-live" /> Running now
+        </h2>
+        <Link href="/extract" className="btn btn-primary btn-sm">
+          <Icon.Play size={13} /> New extraction
+        </Link>
+      </div>
+      {live.length === 0 ? (
+        <p className="live-empty glass">Nothing is running on the extraction service.</p>
+      ) : (
+        <div className="live-cards">
+          {live.map((r) => (
+            <LiveCard key={r.id} run={r} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LiveCard({ run }: { run: Run }) {
+  const p = useProgress(run);
+  return (
+    <Link href={`/extractions/${run.id}`} className="live-card glass">
+      <div className="live-card-head">
+        <span className="cell-strong">{describeRun(run)}</span>
+        <StopButton run={run} />
+      </div>
+      <div className="stats-progress-track">
+        <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
+      </div>
+      <div className="live-card-meta">
+        <span>
+          <b>{p.pct}%</b> · {p.finished.toLocaleString()} / {p.total.toLocaleString()} requests
+        </span>
+        <span>{fmtRecords(run)} rows</span>
+        <span>
+          {fmtMs(p.elapsedMs)}
+          {p.eta ? ` · ${p.eta} left` : ''}
+        </span>
+      </div>
+      {run.params?.startedBy && <span className="cell-sub">Started by {run.params.startedBy}</span>}
+    </Link>
+  );
+}
+
+/** Extractions page: what runs now (from the service), then the history (from the database) */
 export function ExtractionsList() {
-  const { runs, refreshing, refreshRuns } = useApp();
+  const { runs, refreshing, refreshRuns, serviceLive } = useApp();
   const [filter, setFilter] = useState<Filter>('all');
-  const list = useMemo(() => {
-    const all = runs ?? [];
-    return [...all.filter((r) => r.status === 'RUNNING'), ...all.filter((r) => r.status !== 'RUNNING')];
-  }, [runs]);
-  const shown = list.filter((r) => (filter === 'all' ? true : filter === 'running' ? r.status === 'RUNNING' : needsAttention(r)));
+  // While the service is live, its running extractions have their own section above
+  const list = useMemo(() => (runs ?? []).filter((r) => !(serviceLive && r.status === 'RUNNING')), [runs, serviceLive]);
+  const shown = filter === 'all' ? list : list.filter(needsAttention);
   const changed = useChangedKeys(list.map((r) => ({ key: r.id, signature: r.status })));
-  const running = list.filter((r) => r.status === 'RUNNING').length;
   const attention = list.filter(needsAttention).length;
   const filters: [Filter, string][] = [
     ['all', 'All'],
-    ['running', `Running${running ? ` (${running})` : ''}`],
     ['attention', `Needs attention${attention ? ` (${attention})` : ''}`],
   ];
 
   return (
-    <section className="panel glass panel-flush reveal" style={{ '--i': 1 } as React.CSSProperties}>
+    <>
+    <LiveSection />
+    <section className="panel glass panel-flush reveal" style={{ '--i': 2 } as React.CSSProperties}>
       <div className="panel-head padded" style={{ flexWrap: 'wrap' }}>
         <div>
-          <h2 className="panel-title">Extractions</h2>
+          <h2 className="panel-title">Previous extractions</h2>
           <p className="panel-desc">{runs ? `${list.length} most recent` : 'Loading…'}</p>
         </div>
         <div className="toolbar">
@@ -223,9 +294,11 @@ export function ExtractionsList() {
       ) : shown.length === 0 ? (
         <p className="empty">
           {list.length ? 'No extractions match this filter.' : 'No extractions yet.'}{' '}
-          <Link href="/extract" className="link">
-            Start one
-          </Link>
+          {serviceLive && (
+            <Link href="/extract" className="link">
+              Start one
+            </Link>
+          )}
         </p>
       ) : (
         <div className="table-wrap">
@@ -249,12 +322,13 @@ export function ExtractionsList() {
         </div>
       )}
     </section>
+    </>
   );
 }
 
 /** One extraction: flags, then live logs while it runs, or its summary once it ended */
 export function ExtractionDetail({ id }: { id: string }) {
-  const { runs } = useApp();
+  const { runs, serviceLive } = useApp();
   const fromList = runs?.find((r) => r.id === id);
   const [fetched, setFetched] = useState<Run | null>(null);
   const [missing, setMissing] = useState(false);
@@ -313,7 +387,18 @@ export function ExtractionDetail({ id }: { id: string }) {
         </ul>
       )}
 
-      {run.status === 'RUNNING' ? <LiveRun run={run} /> : <RunSummary run={run} />}
+      {run.status === 'RUNNING' && !serviceLive && (
+        <div className="note note-warn note-tight">
+          <Icon.Alert />
+          <span>
+            Live logs and progress come from the extraction service, which is offline. These numbers are the last ones it saved.{' '}
+            <Link href="/settings" className="link">
+              Settings
+            </Link>
+          </span>
+        </div>
+      )}
+      {run.status === 'RUNNING' && serviceLive ? <LiveRun run={run} /> : <RunSummary run={run} />}
     </section>
   );
 }
@@ -373,7 +458,7 @@ function LiveRun({ run }: { run: Run }) {
   useEffect(() => {
     let alive = true;
     const load = () =>
-      api
+      extractor
         .runLogs(run.id)
         .then((data) => alive && setLogs(data))
         .catch(() => {});

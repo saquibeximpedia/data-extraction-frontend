@@ -276,7 +276,7 @@ function EditCountry({ country }: { country: Country }) {
             Remove country
           </Button>
         ) : (
-          <span className="foot-summary">Built-in source: extraction logic lives in the backend; these fields are what users see.</span>
+          <span className="foot-summary">Extracted by the extraction service; these fields are what users see.</span>
         )}
         <div className="inline-form">
           <Button size="sm" variant="ghost" onClick={() => setForm(toForm(country))}>
@@ -330,7 +330,7 @@ function NewCountry() {
       </div>
       <CountryFields form={form} set={(patch) => setForm((f) => ({ ...f, ...patch }))} kind="manual" />
       <div className="panel-foot">
-        <span className="foot-summary">Users open the source website from the Extract page and upload the files they download.</span>
+        <span className="foot-summary">Users open the source website from the country's page and upload the files they download there.</span>
         <Button size="sm" variant="primary" loading={busy} disabled={code.length !== 3 || !form.name || !form.sourceUrl} onClick={create}>
           Add country
         </Button>
@@ -364,7 +364,7 @@ export function CountryAdmin() {
             {country?.updatedAt
               ? `Edited ${fmtRelative(country.updatedAt)}${country.updatedBy ? ` by ${country.updatedBy}` : ''}`
               : country
-                ? 'Links and details users see on the Extract page.'
+                ? 'Links and details users see on the country page.'
                 : 'For sources that publish files (e.g. Excel) instead of an API.'}
           </p>
         </div>
