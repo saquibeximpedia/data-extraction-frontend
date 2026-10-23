@@ -1,4 +1,4 @@
-export { Button, ButtonLink } from './button';
+export { Button } from './button';
 export { Badge } from './badge';
 export type { Tone } from './badge';
 export { Spinner, Skeleton } from './spinner';

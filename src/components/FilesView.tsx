@@ -1,40 +1,51 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { ExportFile } from '@/lib/types';
-import { fmtDate, fmtMonth, fmtRelative, fmtSize } from '@/lib/format';
+import { fmtDate, fmtMonth, fmtRelative, fmtSize, plural } from '@/lib/format';
 import { useChangedKeys } from '@/lib/hooks';
 import { Badge, Button, CodeAvatar, ConfirmModal, Icon, Menu, Skeleton, useToast, type MenuItem } from './ui';
 
+interface MonthGroup {
+  period: string;
+  files: ExportFile[];
+}
+interface YearGroup {
+  year: string;
+  months: MonthGroup[];
+}
 interface CountryGroup {
   countryCode: string;
-  years: { year: string; files: ExportFile[] }[];
+  years: YearGroup[];
 }
 
-/** Country → year → files, newest month first */
-function groupFiles(files: ExportFile[]): CountryGroup[] {
-  const byCountry = new Map<string, Map<string, ExportFile[]>>();
-  for (const f of files) {
-    const cc = f.countryCode ?? 'Other';
-    const year = f.period?.slice(0, 4) ?? 'Other';
-    const years = byCountry.get(cc) ?? new Map<string, ExportFile[]>();
-    years.set(year, [...(years.get(year) ?? []), f]);
-    byCountry.set(cc, years);
-  }
-  return [...byCountry.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([countryCode, years]) => ({
-      countryCode,
-      years: [...years.entries()]
-        .sort(([a], [b]) => b.localeCompare(a))
-        .map(([year, list]) => ({
-          year,
-          files: list.sort((a, b) => (b.period ?? '').localeCompare(a.period ?? '') || a.fileName.localeCompare(b.fileName)),
-        })),
-    }));
+/** Groups items by key, keeping the keys sorted (descending when `desc`) */
+function groupBy<T>(items: T[], key: (item: T) => string, desc = false): [string, T[]][] {
+  const map = new Map<string, T[]>();
+  for (const item of items) map.set(key(item), [...(map.get(key(item)) ?? []), item]);
+  return [...map.entries()].sort(([a], [b]) => (desc ? b.localeCompare(a) : a.localeCompare(b)));
 }
+
+/** Country → year → month (newest first) → files */
+function groupFiles(files: ExportFile[]): CountryGroup[] {
+  return groupBy(files, (f) => f.countryCode ?? 'Other').map(([countryCode, list]) => ({
+    countryCode,
+    years: groupBy(list, (f) => f.period?.slice(0, 4) ?? 'Other', true).map(([year, inYear]) => ({
+      year,
+      months: groupBy(inYear, (f) => f.period ?? 'Other', true).map(([period, inMonth]) => ({
+        period,
+        files: inMonth.sort((a, b) => a.origin.localeCompare(b.origin) || a.fileName.localeCompare(b.fileName)),
+      })),
+    })),
+  }));
+}
+
+/** Uploaded files are stored as "{CC}_{YYYY-MM}__{original name}"; show the original name */
+const displayName = (f: ExportFile) => (f.origin === 'uploaded' && f.fileName.includes('__') ? f.fileName.split('__').slice(1).join('__') : f.fileName);
+
+const pathsOf = (files: ExportFile[]) => files.map((f) => f.relativePath);
 
 function Check({ checked, indeterminate, onChange, label }: { checked: boolean; indeterminate?: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -84,9 +95,8 @@ export function FilesView() {
   }, [files, query, country, countries]);
 
   const groups = useMemo(() => groupFiles(visible), [visible]);
-  const allVisible = visible.map((f) => f.relativePath);
-  const selectedFiles = files.filter((f) => selected.has(f.relativePath));
-  const selectedBytes = selectedFiles.reduce((sum, f) => sum + f.sizeBytes, 0);
+  const allVisible = pathsOf(visible);
+  const selectedBytes = files.filter((f) => selected.has(f.relativePath)).reduce((sum, f) => sum + f.sizeBytes, 0);
 
   function toggle(paths: string[], on: boolean) {
     setSelected((prev) => {
@@ -95,27 +105,18 @@ export function FilesView() {
       return next;
     });
   }
-  const stateOf = (paths: string[]) => {
+  const checkFor = (paths: string[], label: string) => {
     const n = paths.filter((p) => selected.has(p)).length;
-    return { checked: paths.length > 0 && n === paths.length, indeterminate: n > 0 && n < paths.length };
+    return { label, checked: paths.length > 0 && n === paths.length, indeterminate: n > 0 && n < paths.length, onChange: (on: boolean) => toggle(paths, on) };
   };
 
-  async function download(path: string) {
+  async function download(paths: string[]) {
+    setZipping(paths.length > 1);
     try {
-      await api.download(path);
+      if (paths.length === 1) await api.download(paths[0]);
+      else await api.downloadZip(paths);
     } catch (err) {
-      toast('err', 'Could not download', err instanceof ApiError ? err.message : 'The API server did not respond.');
-    }
-  }
-
-  async function downloadSelected() {
-    setZipping(true);
-    try {
-      if (selected.size === 1) await api.download([...selected][0]);
-      else await api.downloadZip([...selected]);
-      toast('ok', 'Download started', `${selected.size} file${selected.size === 1 ? '' : 's'}${selected.size > 1 ? ' in one zip' : ''}`);
-    } catch (err) {
-      toast('err', 'Could not download', err instanceof ApiError ? err.message : 'The API server did not respond.');
+      toast('err', 'Could not download', errorText(err));
     } finally {
       setZipping(false);
     }
@@ -126,19 +127,18 @@ export function FilesView() {
     setDeleting(true);
     try {
       const { deleted } = await api.deleteFiles(toDelete);
-      toast('ok', 'Deleted', `${deleted.length} file${deleted.length === 1 ? '' : 's'}`);
+      toast('ok', 'Deleted', plural(deleted.length, 'file'));
       toggle(toDelete, false);
       setToDelete(null);
       refreshFiles();
     } catch (err) {
-      toast('err', 'Could not delete', err instanceof ApiError ? err.message : 'Delete failed');
+      toast('err', 'Could not delete', errorText(err));
     } finally {
       setDeleting(false);
     }
   }
 
   const fileActions = (f: ExportFile): MenuItem[] => [
-    { label: 'Download', icon: <Icon.Download size={14} />, onSelect: () => download(f.relativePath) },
     {
       label: 'Copy path',
       icon: <Icon.Copy size={14} />,
@@ -146,6 +146,13 @@ export function FilesView() {
     },
     { label: 'Delete file', icon: <Icon.Trash size={14} />, separator: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
+
+  const toggleCollapsed = (code: string) =>
+    setCollapsed((c) => {
+      const next = new Set(c);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return next;
+    });
 
   return (
     <>
@@ -163,12 +170,9 @@ export function FilesView() {
             />
           </label>
           <div className="chip-group" role="group" aria-label="Filter by country">
-            <button type="button" className={`chip-btn ${country === 'ALL' ? 'active' : ''}`} onClick={() => setCountry('ALL')}>
-              All countries
-            </button>
-            {countryCodes.map((cc) => (
+            {['ALL', ...countryCodes].map((cc) => (
               <button key={cc} type="button" className={`chip-btn ${country === cc ? 'active' : ''}`} onClick={() => setCountry(cc)}>
-                {cc}
+                {cc === 'ALL' ? 'All countries' : cc}
               </button>
             ))}
           </div>
@@ -178,17 +182,13 @@ export function FilesView() {
         </div>
 
         <div className={`bulk-bar ${selected.size ? 'on' : ''}`} aria-live="polite">
-          <Check label="Select all shown files" {...stateOf(allVisible)} onChange={(on) => (on ? toggle(allVisible, true) : setSelected(new Set()))} />
+          <Check {...checkFor(allVisible, 'Select all shown files')} />
           <span className="bulk-text">
-            {selected.size
-              ? `${selected.size} selected · ${fmtSize(selectedBytes)}`
-              : loading
-                ? 'Loading…'
-                : `${visible.length} file${visible.length === 1 ? '' : 's'}`}
+            {selected.size ? `${selected.size} selected · ${fmtSize(selectedBytes)}` : loading ? 'Loading…' : plural(visible.length, 'file')}
           </span>
           {selected.size > 0 && (
             <>
-              <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={zipping} onClick={downloadSelected}>
+              <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={zipping} onClick={() => download([...selected])}>
                 {selected.size === 1 ? 'Download' : `Download ${selected.size} (zip)`}
               </Button>
               <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
@@ -202,7 +202,7 @@ export function FilesView() {
         </div>
 
         {loading && (
-          <div className="padded" style={{ display: 'grid', gap: 10 }}>
+          <div className="padded skeleton-rows">
             <Skeleton height={36} />
             <Skeleton height={36} />
           </div>
@@ -212,75 +212,68 @@ export function FilesView() {
         )}
 
         {groups.map((g) => {
-          const groupPaths = g.years.flatMap((y) => y.files.map((f) => f.relativePath));
+          const countryFiles = g.years.flatMap((y) => y.months.flatMap((m) => m.files));
           const isCollapsed = collapsed.has(g.countryCode);
           return (
             <div key={g.countryCode} className="file-group">
               <div className="file-group-head">
-                <Check label={`Select all ${g.countryCode} files`} {...stateOf(groupPaths)} onChange={(on) => toggle(groupPaths, on)} />
-                <button
-                  type="button"
-                  className="file-group-toggle"
-                  onClick={() =>
-                    setCollapsed((c) => {
-                      const next = new Set(c);
-                      next.has(g.countryCode) ? next.delete(g.countryCode) : next.add(g.countryCode);
-                      return next;
-                    })
-                  }
-                  aria-expanded={!isCollapsed}
-                >
+                <Check {...checkFor(pathsOf(countryFiles), `Select all ${g.countryCode} files`)} />
+                <button type="button" className="file-group-toggle" onClick={() => toggleCollapsed(g.countryCode)} aria-expanded={!isCollapsed}>
                   <span className={`group-chevron ${isCollapsed ? 'closed' : ''}`}>
                     <Icon.ChevronDown />
                   </span>
                   <CodeAvatar code={g.countryCode} />
                   <span className="cell-strong">{countryName(g.countryCode)}</span>
                   <span className="cell-sub-color">
-                    {groupPaths.length} file{groupPaths.length === 1 ? '' : 's'}
+                    {plural(countryFiles.length, 'file')} · {plural(g.years.reduce((n, y) => n + y.months.length, 0), 'month')}
                   </span>
                 </button>
               </div>
 
               {!isCollapsed &&
                 g.years.map((y) => {
-                  const yearPaths = y.files.map((f) => f.relativePath);
+                  const yearFiles = y.months.flatMap((m) => m.files);
                   return (
                     <div key={y.year}>
                       <div className="file-year-head">
-                        <Check label={`Select all ${g.countryCode} ${y.year} files`} {...stateOf(yearPaths)} onChange={(on) => toggle(yearPaths, on)} />
+                        <Check {...checkFor(pathsOf(yearFiles), `Select all ${g.countryCode} ${y.year} files`)} />
                         <span>{y.year}</span>
+                        <span className="file-year-count">{plural(yearFiles.length, 'file')}</span>
                       </div>
                       <div className="table-wrap">
                         <table className="table files-table">
                           <tbody>
-                            {y.files.map((f) => (
-                              <tr key={f.relativePath} className={changed.has(f.relativePath) ? 'flash' : ''}>
-                                <td className="cell-check">
-                                  <Check label={`Select ${f.fileName}`} checked={selected.has(f.relativePath)} onChange={(on) => toggle([f.relativePath], on)} />
-                                </td>
-                                <td>
-                                  <div className="cell-strong">{f.period ? fmtMonth(f.period) : f.fileName}</div>
-                                  <div className="cell-sub mono">{f.relativePath}</div>
-                                </td>
-                                <td style={{ width: 120 }}>
-                                  {f.origin === 'uploaded' ? <Badge tone="blue">Uploaded</Badge> : <Badge tone="green">Extracted</Badge>}
-                                </td>
-                                <td className="cell-sub-color nowrap" style={{ width: 90 }}>
-                                  {fmtSize(f.sizeBytes)}
-                                </td>
-                                <td className="cell-sub-color nowrap col-updated" style={{ width: 120 }} title={fmtDate(f.modifiedAt)}>
-                                  {fmtRelative(f.modifiedAt)}
-                                </td>
-                                <td className="nowrap" style={{ width: 150, textAlign: 'right' }}>
-                                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                                    <Button size="sm" icon={<Icon.Download size={14} />} onClick={() => download(f.relativePath)}>
-                                      Download
-                                    </Button>
-                                    <Menu items={fileActions(f)} label="File options" />
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                            {y.months.flatMap((m) =>
+                              m.files.map((f, i) => (
+                                <tr key={f.relativePath} className={`${changed.has(f.relativePath) ? 'flash' : ''} ${i === 0 ? 'month-start' : ''}`}>
+                                  <td className="cell-check">
+                                    <Check {...checkFor([f.relativePath], `Select ${f.fileName}`)} />
+                                  </td>
+                                  <td className="cell-month">{i === 0 && (m.period === 'Other' ? 'Other' : fmtMonth(m.period))}</td>
+                                  <td>
+                                    <div className="file-name" title={f.relativePath}>
+                                      <Icon.File size={14} />
+                                      <span>{displayName(f)}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{ width: 110 }}>{f.origin === 'uploaded' ? <Badge tone="blue">Uploaded</Badge> : <Badge tone="green">Extracted</Badge>}</td>
+                                  <td className="cell-sub-color nowrap" style={{ width: 90 }}>
+                                    {fmtSize(f.sizeBytes)}
+                                  </td>
+                                  <td className="cell-sub-color nowrap col-updated" style={{ width: 120 }} title={fmtDate(f.modifiedAt)}>
+                                    {fmtRelative(f.modifiedAt)}
+                                  </td>
+                                  <td className="nowrap" style={{ width: 150, textAlign: 'right' }}>
+                                    <div className="row-actions">
+                                      <Button size="sm" icon={<Icon.Download size={14} />} onClick={() => download([f.relativePath])}>
+                                        Download
+                                      </Button>
+                                      <Menu items={fileActions(f)} label="File options" />
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -306,7 +299,7 @@ export function FilesView() {
             ) : (
               <>These files are removed from storage.</>
             )}{' '}
-            Extracted rows stay in the ledger, so extracting the month again rebuilds its file.
+            Extracting the month again recreates an extracted file.
           </>
         }
         confirmLabel={toDelete && toDelete.length > 1 ? `Delete ${toDelete.length} files` : 'Delete file'}

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { AdminUser, Country, CountryPatch, ExportFile, Health, Me, Role, Run, RunLog, RunResponse } from './types';
+import type { AdminUser, Country, CountryPatch, ExportFile, Health, Me, MonthStatus, Role, Run, RunLog, RunResponse } from './types';
 
 /**
  * Where the Express API lives. Set NEXT_PUBLIC_API_URL to override; otherwise it is
@@ -15,6 +15,9 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
+/** The message to show for a failed call */
+export const errorText = (err: unknown) => (err instanceof ApiError ? err.message : 'The API server did not respond.');
 
 /** Called whenever the API rejects the session, so the app can show the sign-in screen */
 let onUnauthorized: () => void = () => {};
@@ -73,8 +76,8 @@ export const api = {
   health: () => request<Health>('/api/health'),
 
   countries: () => request<{ countries: Country[] }>('/api/countries').then((r) => r.countries),
-  /** Marks a range (start..end) or a list of months completed */
-  markMonths: (code: string, months: { start: string; end: string } | { periods: string[] }) =>
+  /** Sets a range (start..end) or a list of months to completed (or extracting) */
+  markMonths: (code: string, months: ({ start: string; end: string } | { periods: string[] }) & { status?: MonthStatus }) =>
     request<{ added: number; country: Country }>(`/api/countries/${code}/months`, json('POST', months)),
   unmarkMonths: (code: string, periods: string[]) =>
     request<{ removed: number; country: Country }>(`/api/countries/${code}/months/remove`, json('POST', { periods })),
@@ -89,12 +92,13 @@ export const api = {
   updateUser: (id: string, patch: { role?: Role; password?: string }) => request<AdminUser>(`/api/admin/users/${id}`, json('PATCH', patch)),
   deleteUser: (id: string) => request<{ deleted: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
 
-  /** Runs in the background; progress shows up on the Extractions page */
+  /** Runs in the background (its months are marked extracting); progress shows up on the Extractions page */
   extract: (body: ExtractBody) => request<RunResponse>('/api/extractions', json('POST', body)),
 
   runs: (limit = 50) => request<{ runs: Run[] }>(`/api/runs?limit=${limit}`).then((r) => r.runs),
   run: (id: string) => request<Run>(`/api/runs/${id}`),
   stopRun: (id: string) => request<{ success: boolean; message: string }>(`/api/runs/${id}/stop`, { method: 'POST' }),
+  /** Only a running extraction has logs; the server drops them when it ends */
   runLogs: (id: string) => request<{ logs: RunLog[] }>(`/api/runs/${id}/logs`).then((r) => r.logs),
 
   files: () => request<{ files: ExportFile[] }>('/api/files').then((r) => r.files),

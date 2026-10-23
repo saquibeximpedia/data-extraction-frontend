@@ -1,14 +1,12 @@
 'use client';
 
 import { ExtractionsList } from '@/components/ExtractionsView';
+import { PageHead } from '@/components/PageHead';
 
 export default function ExtractionsPage() {
   return (
     <>
-      <div className="page-head reveal">
-        <h1 className="page-title">Extractions</h1>
-        <p className="page-sub">Running and previous extractions. Open one to follow its logs.</p>
-      </div>
+      <PageHead title="Extractions" sub="Running and previous extractions. Logs are live only while an extraction runs; finished ones show their results." />
       <ExtractionsList />
     </>
   );

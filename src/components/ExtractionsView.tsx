@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, ApiError } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Run, RunLog } from '@/lib/types';
-import { describePlan, fmtDate, fmtDay, fmtDuration, fmtMonth, fmtRelative, fmtTime, TRIGGER_LABELS } from '@/lib/format';
+import { describePlan, fmtDate, fmtDay, fmtDuration, fmtMs, fmtRelative, fmtTime, plural } from '@/lib/format';
 import { useChangedKeys } from '@/lib/hooks';
 import { Badge, Button, formatLogMessage, Icon, Skeleton, useToast, type Tone } from './ui';
 
@@ -20,36 +20,16 @@ function StatusBadge({ run }: { run: Run }) {
   );
 }
 
-function fmtTimer(ms: number): string {
-  if (ms < 0 || !Number.isFinite(ms)) return '00:00';
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s` : `${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
-}
-
-function fmtEta(ms: number): string {
-  if (ms <= 0 || !Number.isFinite(ms)) return '—';
-  const total = Math.round(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  if (h > 0) return `~${h}h ${m}m`;
-  if (m > 0) return `~${m}m`;
-  return `~${total}s`;
-}
-
-function describeRun(run: Run): string {
-  return run.params?.plans?.map(describePlan).join('; ') || TRIGGER_LABELS[run.trigger] || run.trigger;
-}
+const describeRun = (run: Run) => run.params?.plans?.map(describePlan).join('; ') || 'Extraction';
+const fmtRecords = (run: Run) => (run.stats.records === undefined ? '—' : run.stats.records.toLocaleString());
+const timeTaken = (run: Run) => (run.finishedAt ? fmtDuration(run.startedAt, run.finishedAt) : '—');
 
 /** Flags and problems worth a person's attention */
 function runNotes(run: Run): { tone: 'amber' | 'red'; text: string }[] {
   const s = run.stats;
   return [
     ...(s.flags ?? []).map((f) => ({ tone: 'amber' as const, text: f.message })),
-    ...Object.entries(s.unpublishedPeriods ?? {}).map(([k, v]) => ({ tone: 'amber' as const, text: `${k}: no records for ${v.map(fmtMonth).join(', ')}` })),
-    ...Object.entries(s.invalidHsCodes ?? {}).map(([k, v]) => ({ tone: 'amber' as const, text: `${k}: ${v.length} invalid HS code${v.length === 1 ? '' : 's'} skipped` })),
+    ...Object.entries(s.invalidHsCodes ?? {}).map(([k, v]) => ({ tone: 'amber' as const, text: `${k}: ${plural(v.length, 'invalid HS code')} skipped` })),
     ...(run.error ? [{ tone: 'red' as const, text: run.error }] : []),
   ];
 }
@@ -66,8 +46,7 @@ function useProgress(run: Run) {
   const finished = s.completed + s.noData + s.failed + s.skipped;
   const total = Math.max(s.planned ?? 0, finished);
   const elapsedMs = Math.max(1000, (run.finishedAt ? new Date(run.finishedAt).getTime() : now) - new Date(run.startedAt).getTime());
-  const worked = s.completed + s.noData + s.failed;
-  const perSec = worked / (elapsedMs / 1000);
+  const perSec = (s.completed + s.noData + s.failed) / (elapsedMs / 1000);
   const remaining = Math.max(0, total - finished);
   return {
     finished,
@@ -76,11 +55,11 @@ function useProgress(run: Run) {
     elapsedMs,
     perMin: perSec * 60,
     pct: total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0,
-    etaMs: perSec > 0 && remaining > 0 ? (remaining / perSec) * 1000 : 0,
+    eta: finished >= 3 && perSec > 0 && remaining > 0 ? `~${fmtMs((remaining / perSec) * 1000)}` : '',
   };
 }
 
-/** Stacked bar: each segment is a share of the run's planned tasks */
+/** Stacked bar: each segment is a share of the run's planned requests */
 function Outcome({ run }: { run: Run }) {
   const s = run.stats;
   const parts = [
@@ -94,22 +73,35 @@ function Outcome({ run }: { run: Run }) {
 
   return (
     <div className="outcome">
-      <div className="outcome-bar" title={`${finished.toLocaleString()} of ${(s.planned ?? finished).toLocaleString()} tasks`}>
+      <div className="outcome-bar" title={`${finished.toLocaleString()} of ${(s.planned ?? finished).toLocaleString()} requests`}>
         {parts.map((p) => (
           <span key={p.key} className={`seg seg-${p.key}`} style={{ width: `${(p.n / total) * 100}%` }} />
         ))}
       </div>
       <div className="outcome-text">
         {parts.length === 0
-          ? run.status === 'RUNNING'
-            ? 'Starting…'
-            : 'Nothing to do'
+          ? 'Nothing to do'
           : parts.map((p, i) => (
               <span key={p.key}>
                 {i > 0 && ' · '}
                 <b>{p.n.toLocaleString()}</b> {p.label}
               </span>
             ))}
+      </div>
+    </div>
+  );
+}
+
+function Progress({ run }: { run: Run }) {
+  const p = useProgress(run);
+  return (
+    <div className="outcome">
+      <div className="stats-progress-track">
+        <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
+      </div>
+      <div className="outcome-text">
+        <b>{p.pct}%</b> · {p.finished.toLocaleString()} / {p.total.toLocaleString()} requests
+        {p.eta ? ` · ${p.eta} left` : ''}
       </div>
     </div>
   );
@@ -124,10 +116,10 @@ function StopButton({ run }: { run: Run }) {
     setStopping(true);
     try {
       await api.stopRun(run.id);
-      toast('ok', 'Extraction stopping', 'Tasks in flight finish; files are saved for the months already touched.');
+      toast('ok', 'Extraction stopping', 'Requests in flight finish; files are saved for the months that returned rows.');
       refreshRuns();
     } catch (err) {
-      toast('err', 'Could not stop the extraction', err instanceof ApiError ? err.message : 'The API server did not respond.');
+      toast('err', 'Could not stop the extraction', errorText(err));
     } finally {
       setStopping(false);
     }
@@ -139,14 +131,18 @@ function StopButton({ run }: { run: Run }) {
   );
 }
 
+/** A running extraction's elapsed time ticks every second */
+function Elapsed({ run }: { run: Run }) {
+  return <>{fmtMs(useProgress(run).elapsedMs)}</>;
+}
+
 function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
   const router = useRouter();
-  const p = useProgress(run);
   const notes = runNotes(run);
-  const open = () => router.push(`/extractions/${run.id}`);
+  const running = run.status === 'RUNNING';
 
   return (
-    <tr className={`clickable ${flash ? 'flash' : ''}`} onClick={open}>
+    <tr className={`clickable ${flash ? 'flash' : ''}`} onClick={() => router.push(`/extractions/${run.id}`)}>
       <td className="nowrap" title={fmtDate(run.startedAt)}>
         <div className="cell-strong">{fmtTime(run.startedAt)}</div>
         <div className="cell-sub">{fmtDay(run.startedAt)}</div>
@@ -155,44 +151,18 @@ function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
         <Link href={`/extractions/${run.id}`} className="cell-strong row-link" onClick={(e) => e.stopPropagation()}>
           {describeRun(run)}
         </Link>
-        <div className="cell-sub" style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="cell-sub row-meta">
           <StatusBadge run={run} />
-          {notes.length > 0 && (
-            <Badge tone={notes.some((n) => n.tone === 'red') ? 'red' : 'amber'}>
-              {notes.length} flag{notes.length === 1 ? '' : 's'}
-            </Badge>
-          )}
+          {notes.length > 0 && <Badge tone={notes.some((n) => n.tone === 'red') ? 'red' : 'amber'}>{plural(notes.length, 'flag')}</Badge>}
           {run.params?.startedBy && <span>by {run.params.startedBy}</span>}
         </div>
       </td>
-      <td className="cell-outcome">
-        {run.status === 'RUNNING' ? (
-          <div className="outcome">
-            <div className="stats-progress-track">
-              <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
-            </div>
-            <div className="outcome-text">
-              <b>{p.pct}%</b> · {p.finished.toLocaleString()} / {p.total.toLocaleString()} tasks
-              {p.finished >= 3 && p.etaMs > 0 ? ` · ${fmtEta(p.etaMs)} left` : ''}
-            </div>
-          </div>
-        ) : (
-          <Outcome run={run} />
-        )}
-      </td>
-      <td className="nowrap cell-sub-color">{run.finishedAt ? fmtDuration(run.startedAt, run.finishedAt) : fmtTimer(p.elapsedMs)}</td>
-      <td className="nowrap">
-        {run.stats.files.length ? (
-          <span className="files-count">
-            <Icon.File size={14} /> {run.stats.files.length}
-          </span>
-        ) : (
-          <span className="faint">—</span>
-        )}
-      </td>
+      <td className="cell-outcome">{running ? <Progress run={run} /> : <Outcome run={run} />}</td>
+      <td className="nowrap cell-sub-color">{fmtRecords(run)}</td>
+      <td className="nowrap cell-sub-color">{running ? <Elapsed run={run} /> : timeTaken(run)}</td>
       <td className="cell-actions nowrap">
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {run.status === 'RUNNING' && <StopButton run={run} />}
+        <div className="row-actions">
+          {running && <StopButton run={run} />}
           <span className="row-chevron">
             <Icon.ChevronRight size={15} />
           </span>
@@ -206,7 +176,7 @@ type Filter = 'all' | 'running' | 'attention';
 
 const needsAttention = (r: Run) => r.status === 'FAILED' || r.status === 'INTERRUPTED' || r.stats.failed > 0 || (r.stats.flags?.length ?? 0) > 0;
 
-/** Extractions page: every extraction, running ones first. Logs open with an extraction. */
+/** Extractions page: every extraction, running ones first */
 export function ExtractionsList() {
   const { runs, refreshing, refreshRuns } = useApp();
   const [filter, setFilter] = useState<Filter>('all');
@@ -218,25 +188,26 @@ export function ExtractionsList() {
   const changed = useChangedKeys(list.map((r) => ({ key: r.id, signature: r.status })));
   const running = list.filter((r) => r.status === 'RUNNING').length;
   const attention = list.filter(needsAttention).length;
+  const filters: [Filter, string][] = [
+    ['all', 'All'],
+    ['running', `Running${running ? ` (${running})` : ''}`],
+    ['attention', `Needs attention${attention ? ` (${attention})` : ''}`],
+  ];
 
   return (
     <section className="panel glass panel-flush reveal" style={{ '--i': 1 } as React.CSSProperties}>
       <div className="panel-head padded" style={{ flexWrap: 'wrap' }}>
         <div>
           <h2 className="panel-title">Extractions</h2>
-          <p className="panel-desc">{runs ? `${list.length} most recent · open one to see its logs` : 'Loading…'}</p>
+          <p className="panel-desc">{runs ? `${list.length} most recent` : 'Loading…'}</p>
         </div>
         <div className="toolbar">
           <div className="chip-group" role="group" aria-label="Filter extractions">
-            <button type="button" className={`chip-btn ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-              All
-            </button>
-            <button type="button" className={`chip-btn ${filter === 'running' ? 'active' : ''}`} onClick={() => setFilter('running')}>
-              Running{running ? ` (${running})` : ''}
-            </button>
-            <button type="button" className={`chip-btn ${filter === 'attention' ? 'active' : ''}`} onClick={() => setFilter('attention')}>
-              Needs attention{attention ? ` (${attention})` : ''}
-            </button>
+            {filters.map(([value, label]) => (
+              <button key={value} type="button" className={`chip-btn ${filter === value ? 'active' : ''}`} onClick={() => setFilter(value)}>
+                {label}
+              </button>
+            ))}
           </div>
           <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing.runs} onClick={refreshRuns}>
             Refresh
@@ -245,7 +216,7 @@ export function ExtractionsList() {
       </div>
 
       {runs === null ? (
-        <div className="padded" style={{ display: 'grid', gap: 10 }}>
+        <div className="padded skeleton-rows">
           <Skeleton height={36} />
           <Skeleton height={36} />
         </div>
@@ -264,8 +235,8 @@ export function ExtractionsList() {
                 <th style={{ width: 96 }}>Started</th>
                 <th>Extraction</th>
                 <th style={{ width: 280 }}>Progress</th>
-                <th style={{ width: 100 }}>Duration</th>
-                <th style={{ width: 64 }}>Files</th>
+                <th style={{ width: 100 }}>Records</th>
+                <th style={{ width: 100 }}>Time taken</th>
                 <th style={{ width: 110 }} />
               </tr>
             </thead>
@@ -281,7 +252,7 @@ export function ExtractionsList() {
   );
 }
 
-/** One extraction: flags, live logs, metrics and its files */
+/** One extraction: flags, then live logs while it runs, or its summary once it ended */
 export function ExtractionDetail({ id }: { id: string }) {
   const { runs } = useApp();
   const fromList = runs?.find((r) => r.id === id);
@@ -314,61 +285,8 @@ export function ExtractionDetail({ id }: { id: string }) {
       </section>
     );
   }
-  return <ExtractionDetailBody run={run} />;
-}
 
-function ExtractionDetailBody({ run }: { run: Run }) {
-  const toast = useToast();
-  const [logs, setLogs] = useState<RunLog[]>([]);
-  const [logsLoaded, setLogsLoaded] = useState(false);
-  const logRef = useRef<HTMLDivElement>(null);
-  const followRef = useRef(true);
-  const [following, setFollowing] = useState(true);
-
-  // Logs load when an extraction is opened, and stream while it runs
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      api
-        .runLogs(run.id)
-        .then((data) => alive && setLogs(data))
-        .catch(() => {})
-        .finally(() => alive && setLogsLoaded(true));
-    load();
-    const timer = run.status === 'RUNNING' ? setInterval(load, 1500) : null;
-    return () => {
-      alive = false;
-      if (timer) clearInterval(timer);
-    };
-  }, [run.id, run.status]);
-
-  // Stay pinned to the newest line unless the reader scrolled up
-  useEffect(() => {
-    if (followRef.current && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
-  const p = useProgress(run);
-  const s = run.stats;
   const notes = runNotes(run);
-
-  function onScroll() {
-    const el = logRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    followRef.current = atBottom;
-    setFollowing(atBottom);
-  }
-  function follow() {
-    followRef.current = true;
-    setFollowing(true);
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
-  }
-  function copyLogs() {
-    navigator.clipboard
-      ?.writeText(logs.map((l) => `[${fmtTime(l.timestamp)}] ${l.message}`).join('\n'))
-      .then(() => toast('ok', 'Logs copied', `${logs.length} lines`));
-  }
-
   return (
     <section className="panel glass reveal" style={{ '--i': 1 } as React.CSSProperties}>
       <div className="panel-head" style={{ alignItems: 'flex-start' }}>
@@ -376,7 +294,6 @@ function ExtractionDetailBody({ run }: { run: Run }) {
           <h2 className="panel-title">{describeRun(run)}</h2>
           <p className="panel-desc">
             Started {fmtDate(run.startedAt)} ({fmtRelative(run.startedAt)}){run.params?.startedBy ? ` by ${run.params.startedBy}` : ''}
-            {run.finishedAt ? ` · took ${fmtDuration(run.startedAt, run.finishedAt)}` : ''}
           </p>
         </div>
         <div className="live-run-actions">
@@ -396,136 +313,202 @@ function ExtractionDetailBody({ run }: { run: Run }) {
         </ul>
       )}
 
-      <div className="run-drawer-panel">
-        <div className="run-drawer-header">
-          <div className="run-drawer-title">
-            <span style={{ fontWeight: 600, fontSize: 12 }}>Logs</span>
-            <span className="cell-sub" style={{ fontSize: 11, marginLeft: 8 }}>
-              {logs.length} line{logs.length === 1 ? '' : 's'}
-              {run.status === 'RUNNING' && ' · streaming live'}
-            </span>
+      {run.status === 'RUNNING' ? <LiveRun run={run} /> : <RunSummary run={run} />}
+    </section>
+  );
+}
+
+function RunFiles({ files }: { files: string[] }) {
+  if (!files.length) return null;
+  return (
+    <div className="stats-files-section">
+      <div className="stats-files-title">
+        <Icon.File size={12} /> {plural(files.length, 'file')} saved
+      </div>
+      <div className="stats-files-list">
+        {files.map((file) => (
+          <button key={file} type="button" className="stats-file-chip" title={`Download ${file}`} onClick={() => api.download(file)}>
+            <Icon.Download size={11} />
+            <span className="stats-file-name">{file.split('/').pop()}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A finished extraction: its logs are gone, so show what it did */
+function RunSummary({ run }: { run: Run }) {
+  const s = run.stats;
+  const tiles = [
+    { label: 'Status', value: <StatusBadge run={run} /> },
+    { label: 'Time taken', value: timeTaken(run) },
+    { label: 'Records', value: fmtRecords(run) },
+    { label: 'Requests', value: Math.max(s.planned ?? 0, s.completed + s.noData + s.failed + s.skipped).toLocaleString() },
+  ];
+  return (
+    <>
+      <div className="summary-grid">
+        {tiles.map((t) => (
+          <div key={t.label} className="summary-tile">
+            <span className="stats-cell-label">{t.label}</span>
+            <span className="summary-value">{t.value}</span>
           </div>
-          {logs.length > 0 && (
-            <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copyLogs} style={{ height: 24, fontSize: 11 }}>
-              Copy
-            </Button>
+        ))}
+      </div>
+      <Outcome run={run} />
+      <RunFiles files={s.files} />
+    </>
+  );
+}
+
+/** A running extraction: streaming logs next to live metrics */
+function LiveRun({ run }: { run: Run }) {
+  const toast = useToast();
+  const [logs, setLogs] = useState<RunLog[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const [following, setFollowing] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .runLogs(run.id)
+        .then((data) => alive && setLogs(data))
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 1500);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [run.id]);
+
+  // Stay pinned to the newest line unless the reader scrolled up
+  useEffect(() => {
+    if (followRef.current && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  const p = useProgress(run);
+  const s = run.stats;
+
+  function onScroll() {
+    const el = logRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    followRef.current = atBottom;
+    setFollowing(atBottom);
+  }
+  function follow() {
+    followRef.current = true;
+    setFollowing(true);
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
+  }
+  function copyLogs() {
+    navigator.clipboard
+      ?.writeText(logs.map((l) => `[${fmtTime(l.timestamp)}] ${l.message}`).join('\n'))
+      .then(() => toast('ok', 'Logs copied', plural(logs.length, 'line')));
+  }
+
+  const breakdown = [
+    { label: 'Done, with data', n: s.completed, bullet: 'bullet-done' },
+    { label: 'Done, 0 records', n: s.noData, bullet: 'bullet-none' },
+    { label: 'Failed', n: s.failed, bullet: 'bullet-failed' },
+    { label: 'Skipped', n: s.skipped, bullet: 'bullet-skipped' },
+  ].filter((b, i) => i < 2 || b.n > 0);
+
+  return (
+    <div className="run-drawer-panel">
+      <div className="run-drawer-header">
+        <div className="run-drawer-title">
+          <span style={{ fontWeight: 600, fontSize: 12 }}>Live logs</span>
+          <span className="cell-sub" style={{ fontSize: 11, marginLeft: 8 }}>
+            {plural(logs.length, 'line')} · cleared when the extraction ends
+          </span>
+        </div>
+        {logs.length > 0 && (
+          <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copyLogs} style={{ height: 24, fontSize: 11 }}>
+            Copy
+          </Button>
+        )}
+      </div>
+
+      <div className="run-drawer-body">
+        <div className="run-drawer-logs-wrap">
+          <div className="logs-panel-view run-drawer-logs detail-logs" ref={logRef} onScroll={onScroll}>
+            {logs.length === 0 ? (
+              <div className="logs-empty">Starting requests and waiting for output…</div>
+            ) : (
+              logs.map((log, i) => (
+                <div key={i} className="log-row">
+                  <span className="log-time-col">{fmtTime(log.timestamp)}</span>
+                  {log.level !== 'info' && <span className={`log-tag log-tag-${log.level}`}>{log.level.toUpperCase()}</span>}
+                  <span className="log-msg-col">{formatLogMessage(log.message)}</span>
+                </div>
+              ))
+            )}
+          </div>
+          {!following && (
+            <button type="button" className="logs-follow-pill" onClick={follow}>
+              <Icon.ArrowDown size={12} />
+              <span>Follow live logs</span>
+              <span className="live-pulse-dot" />
+            </button>
           )}
         </div>
 
-        <div className="run-drawer-body">
-          <div className="run-drawer-logs-wrap">
-            <div className="logs-panel-view run-drawer-logs detail-logs" ref={logRef} onScroll={onScroll}>
-              {!logsLoaded ? (
-                <div className="logs-empty">Loading logs…</div>
-              ) : logs.length === 0 ? (
-                <div className="logs-empty">
-                  {run.status === 'RUNNING' ? 'Starting tasks and waiting for output…' : 'No logs kept for this run (logs are held in memory until the server restarts).'}
-                </div>
-              ) : (
-                logs.map((log, i) => (
-                  <div key={i} className="log-row">
-                    <span className="log-time-col">{fmtTime(log.timestamp)}</span>
-                    {log.level !== 'info' && <span className={`log-tag log-tag-${log.level}`}>{log.level.toUpperCase()}</span>}
-                    <span className="log-msg-col">{formatLogMessage(log.message)}</span>
-                  </div>
-                ))
-              )}
+        <div className="run-drawer-stats-panel detail-stats">
+          <div className="stats-panel-head">
+            <div className="stats-panel-title">
+              <span className="live-status-badge">
+                <span className="live-pulse-dot" /> Live metrics
+              </span>
             </div>
-            {!following && run.status === 'RUNNING' && (
-              <button type="button" className="logs-follow-pill" onClick={follow}>
-                <Icon.ArrowDown size={12} />
-                <span>Follow live logs</span>
-                <span className="live-pulse-dot" />
-              </button>
-            )}
+            <span className="stats-panel-pct">{p.pct}%</span>
           </div>
-
-          <div className="run-drawer-stats-panel detail-stats">
-            <div className="stats-panel-head">
-              <div className="stats-panel-title">
-                {run.status === 'RUNNING' ? (
-                  <span className="live-status-badge">
-                    <span className="live-pulse-dot" /> Live metrics
-                  </span>
-                ) : (
-                  <span className="static-status-badge">Summary</span>
-                )}
-              </div>
-              <span className="stats-panel-pct">{p.pct}%</span>
-            </div>
-            <div className="stats-progress-track">
-              <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
-            </div>
-            <div className="stats-timer-grid">
-              <div className="stats-timer-cell">
-                <span className="stats-cell-label">Elapsed</span>
-                <span className="stats-cell-val font-mono">{fmtTimer(p.elapsedMs)}</span>
-              </div>
-              <div className="stats-timer-cell">
-                <span className="stats-cell-label">{run.status === 'RUNNING' ? 'Est. remaining' : 'Status'}</span>
-                <span className="stats-cell-val font-mono">{run.status === 'RUNNING' ? (p.finished >= 3 ? fmtEta(p.etaMs) : 'Estimating…') : run.status}</span>
-              </div>
-            </div>
-            <div className="stats-breakdown">
-              <div className="stats-breakdown-row">
-                <span className="breakdown-name">
-                  <span className="breakdown-bullet bullet-done" /> Done, with data
-                </span>
-                <span className="breakdown-count">{s.completed.toLocaleString()}</span>
-              </div>
-              <div className="stats-breakdown-row">
-                <span className="breakdown-name">
-                  <span className="breakdown-bullet bullet-none" /> Done, 0 records
-                </span>
-                <span className="breakdown-count">{s.noData.toLocaleString()}</span>
-              </div>
-              {s.failed > 0 && (
-                <div className="stats-breakdown-row">
-                  <span className="breakdown-name">
-                    <span className="breakdown-bullet bullet-failed" /> Failed
-                  </span>
-                  <span className="breakdown-count text-red">{s.failed.toLocaleString()}</span>
-                </div>
-              )}
-              {s.skipped > 0 && (
-                <div className="stats-breakdown-row">
-                  <span className="breakdown-name">
-                    <span className="breakdown-bullet bullet-skipped" /> Skipped
-                  </span>
-                  <span className="breakdown-count text-muted">{s.skipped.toLocaleString()}</span>
-                </div>
-              )}
-              <div className="stats-breakdown-row stats-breakdown-total">
-                <span className="breakdown-name">{run.status === 'RUNNING' ? 'Remaining tasks' : 'Total tasks'}</span>
-                <span className="breakdown-count font-semibold">
-                  {(run.status === 'RUNNING' ? p.remaining : p.total).toLocaleString()}
-                  {run.status === 'RUNNING' && <span className="total-sub"> / {p.total.toLocaleString()}</span>}
-                </span>
-              </div>
-            </div>
-            {run.status === 'RUNNING' && p.perMin > 0 && (
-              <div className="stats-rate-info">
-                Speed: <b>{p.perMin < 60 ? `${p.perMin.toFixed(1)} tasks/min` : `${(p.perMin / 60).toFixed(1)} tasks/sec`}</b>
-              </div>
-            )}
-            {s.files.length > 0 && (
-              <div className="stats-files-section">
-                <div className="stats-files-title">
-                  <Icon.File size={12} /> {s.files.length} file{s.files.length === 1 ? '' : 's'} saved
-                </div>
-                <div className="stats-files-list">
-                  {s.files.map((file) => (
-                    <button key={file} type="button" className="stats-file-chip" title={`Download ${file}`} onClick={() => api.download(file)}>
-                      <Icon.Download size={11} />
-                      <span className="stats-file-name">{file.split('/').pop()}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="stats-progress-track">
+            <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
           </div>
+          <div className="stats-timer-grid">
+            <div className="stats-timer-cell">
+              <span className="stats-cell-label">Elapsed</span>
+              <span className="stats-cell-val font-mono">{fmtMs(p.elapsedMs)}</span>
+            </div>
+            <div className="stats-timer-cell">
+              <span className="stats-cell-label">Est. remaining</span>
+              <span className="stats-cell-val font-mono">{p.eta || 'Estimating…'}</span>
+            </div>
+          </div>
+          <div className="stats-breakdown">
+            {breakdown.map((b) => (
+              <div key={b.label} className="stats-breakdown-row">
+                <span className="breakdown-name">
+                  <span className={`breakdown-bullet ${b.bullet}`} /> {b.label}
+                </span>
+                <span className="breakdown-count">{b.n.toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="stats-breakdown-row">
+              <span className="breakdown-name">Records so far</span>
+              <span className="breakdown-count">{fmtRecords(run)}</span>
+            </div>
+            <div className="stats-breakdown-row stats-breakdown-total">
+              <span className="breakdown-name">Remaining requests</span>
+              <span className="breakdown-count font-semibold">
+                {p.remaining.toLocaleString()}
+                <span className="total-sub"> / {p.total.toLocaleString()}</span>
+              </span>
+            </div>
+          </div>
+          {p.perMin > 0 && (
+            <div className="stats-rate-info">
+              Speed: <b>{p.perMin < 60 ? `${p.perMin.toFixed(1)} requests/min` : `${(p.perMin / 60).toFixed(1)} requests/sec`}</b>
+            </div>
+          )}
+          <RunFiles files={s.files} />
         </div>
       </div>
-    </section>
+    </div>
   );
 }

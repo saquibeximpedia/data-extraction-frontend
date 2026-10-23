@@ -30,19 +30,3 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
-/** Same look as Button, for links (e.g. downloads) */
-export function ButtonLink({
-  variant = 'secondary',
-  size = 'md',
-  icon,
-  className = '',
-  children,
-  ...rest
-}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: Variant; size?: Size; icon?: React.ReactNode }) {
-  return (
-    <a className={`btn btn-${variant} btn-${size} ${className}`} {...rest}>
-      {icon}
-      {children}
-    </a>
-  );
-}

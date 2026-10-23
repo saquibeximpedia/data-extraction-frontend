@@ -1,3 +1,6 @@
+/** plural(3, 'file') -> "3 files" */
+export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+
 export function fmtDate(value?: string): string {
   return value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
@@ -9,7 +12,7 @@ export function fmtMonth(period: string): string {
 }
 
 /** "3 min ago", "2 h ago", "yesterday"; falls back to the date after a week */
-export function fmtRelative(value?: string): string {
+export function fmtRelative(value?: string | null): string {
   if (!value) return '';
   const diff = (Date.now() - new Date(value).getTime()) / 1000;
   if (diff < 45) return 'just now';
@@ -26,21 +29,18 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-export const TRIGGER_LABELS: Record<string, string> = {
-  SCHEDULED: 'Daily schedule (retired)',
-  AUTO_SYNC_API: 'Daily check (retired)',
-  MANUAL_EXTRACT: 'Extraction',
-};
-
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 export const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-export function fmtDuration(from: string, to: string): string {
-  const s = Math.max(0, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 1000));
+/** 75s -> "1m 15s"; 2h 5m -> "2h 5m" */
+export function fmtMs(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
+
+export const fmtDuration = (from: string, to: string) => fmtMs(new Date(to).getTime() - new Date(from).getTime());
 
 /** "2026-01"…"2026-09" -> "Jan 2026 – Sep 2026" (one month shows once) */
 export function fmtRange(periods: string[]): string {
@@ -53,12 +53,8 @@ export function fmtRange(periods: string[]): string {
 /** What a run covered, e.g. "ZAF · Jan 2026 – Sep 2026 · 10,008 saved codes · import & export" */
 export function describePlan(plan: { countryCode: string; periods?: string[]; tradeTypes?: string[]; hsCodeSource?: string; hsCodeCount?: number; hsCodes?: string[] }): string {
   const count = plan.hsCodeCount ?? plan.hsCodes?.length;
-  const codes =
-    count === undefined
-      ? ''
-      : plan.hsCodeSource === 'custom'
-        ? `${count.toLocaleString()} custom code${count === 1 ? '' : 's'}`
-        : `${count.toLocaleString()} ${plan.hsCodeSource === 'test' ? 'test' : 'saved'} codes`;
+  const kind = plan.hsCodeSource === 'custom' ? 'custom code' : plan.hsCodeSource === 'test' ? 'test code' : 'saved code';
+  const codes = count === undefined ? '' : plural(count, kind);
   const flows = plan.tradeTypes?.length ? plan.tradeTypes.map((t) => t.toLowerCase()).join(' & ') : '';
   return [plan.countryCode, fmtRange(plan.periods ?? []), codes, flows].filter(Boolean).join(' · ');
 }

@@ -6,19 +6,16 @@ import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { Icon, ThemeToggle } from './ui';
 
+// `section` is the path prefix the tab stays lit for (country pages belong to the dashboard)
 const TABS = [
-  { href: '/', label: 'Dashboard' },
-  { href: '/extract', label: 'Extract' },
-  { href: '/extractions', label: 'Extractions' },
-  { href: '/files', label: 'Files' },
+  { href: '/', section: '/countries', label: 'Dashboard' },
+  { href: '/extract', section: '/extract', label: 'Extract' },
+  { href: '/extractions', section: '/extractions', label: 'Extractions' },
+  { href: '/files', section: '/files', label: 'Files' },
 ];
-const ADMIN_TAB = { href: '/admin', label: 'Admin' };
+const ADMIN_TAB = { href: '/admin/users', section: '/admin', label: 'Admin' };
 
-/**
- * Floating glass navigation: pages on the left (Admin for admins), theme and sign out on the right.
- * The raised pill marks the current page only; hover is a faint tint.
- * Clicking a tab tells the layout, which shows that page's skeleton until it renders.
- */
+/** Page tabs (Admin for admins), theme and sign out. A tab click lets the layout show that page's skeleton. */
 export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void }) {
   const pathname = usePathname();
   const { runs, files, me, isAdmin, signOut } = useApp();
@@ -26,7 +23,7 @@ export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void 
   const runningCount = runs?.filter((r) => r.status === 'RUNNING').length ?? 0;
 
   // '/extract' must not light up for '/extractions'
-  const activeIndex = Math.max(0, tabs.findIndex((t) => (t.href === '/' ? pathname === '/' : pathname === t.href || pathname.startsWith(t.href + '/'))));
+  const activeIndex = Math.max(0, tabs.findIndex((t) => pathname === t.href || pathname === t.section || pathname.startsWith(t.section + '/')));
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
 

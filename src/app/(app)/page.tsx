@@ -1,14 +1,12 @@
 'use client';
 
 import { DashboardView } from '@/components/DashboardView';
+import { PageHead } from '@/components/PageHead';
 
 export default function DashboardPage() {
   return (
     <>
-      <div className="page-head reveal">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-sub">Months marked completed for each country. Select months to mark or remove them, or open a country to extract.</p>
-      </div>
+      <PageHead title="Dashboard" sub="Each country's latest completed month. Open a country to see all its months, or extract straight away." />
       <DashboardView />
     </>
   );

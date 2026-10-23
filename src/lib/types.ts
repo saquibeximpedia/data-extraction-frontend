@@ -2,8 +2,10 @@
 
 export type TradeFlow = 'IMPORT' | 'EXPORT';
 export type RunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'INTERRUPTED' | 'STOPPED';
-export type RunTrigger = 'SCHEDULED' | 'AUTO_SYNC_API' | 'MANUAL_EXTRACT';
+export type RunTrigger = 'MANUAL_EXTRACT';
 export type Role = 'admin' | 'user';
+/** 'extracting' once an extraction starts for the month; users mark it 'completed' */
+export type MonthStatus = 'extracting' | 'completed';
 
 export interface Me {
   id: string;
@@ -46,8 +48,10 @@ export interface Country {
   testHsCodeCount: number;
   recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out
   completedMonths: string[]; // marked completed by users, oldest first
+  extractingMonths: string[]; // an extraction was started; not marked completed yet
   latestCompleted: string | null;
   lastExtractedAt: string | null;
+  lastUpdatedAt: string | null; // latest month change or extraction
   updatedAt: string | null;
   updatedBy: string | null;
 }
@@ -92,8 +96,8 @@ export interface RunStats {
   noData: number;
   failed: number;
   skipped: number;
+  records?: number; // rows returned by the source (older runs don't have it)
   flags?: RunFlag[];
-  unpublishedPeriods?: Record<string, string[]>;
   invalidHsCodes?: Record<string, string[]>;
   files: string[];
 }

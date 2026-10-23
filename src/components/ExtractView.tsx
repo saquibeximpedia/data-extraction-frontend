@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api, ApiError } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Country, TradeFlow } from '@/lib/types';
-import { fmtMonth, fmtRange, fmtRelative, fmtSize } from '@/lib/format';
+import { fmtMonth, fmtRange, fmtRelative, fmtSize, plural } from '@/lib/format';
+import { addMonths, latestPublished, yearsFor } from '@/lib/months';
+import { EditMonthsLink, MonthGrid, MonthLegend } from './MonthGrid';
 import { Badge, Button, CodeAvatar, Field, Icon, MonthRangePicker, Segmented, Select, Skeleton, useToast, type MonthPreset } from './ui';
 
 type Flow = 'ALL' | TradeFlow;
@@ -20,15 +22,10 @@ const hostOf = (url: string) => {
     return 'source';
   }
 };
-const addMonths = (period: string, delta: number) => {
-  const [y, m] = period.split('-').map(Number);
-  const i = y * 12 + (m - 1) + delta;
-  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
-};
 
 /** Presets from the latest month the source should have published */
 function presetsFor(country: Country, range: boolean): MonthPreset[] {
-  const latest = country.recentPeriods[country.recentPeriods.length - 1];
+  const latest = latestPublished(country);
   if (!latest) return [];
   if (!range) {
     return [
@@ -92,6 +89,10 @@ function SourceCard({ country }: { country: Country }) {
           <dt>What is saved</dt>
           <dd>{source.output}</dd>
         </div>
+        <div>
+          <dt>Publication lag</dt>
+          <dd>{plural(country.lagMonths, 'month')}</dd>
+        </div>
         {country.notes && (
           <div>
             <dt>Notes</dt>
@@ -99,18 +100,27 @@ function SourceCard({ country }: { country: Country }) {
           </div>
         )}
       </dl>
+    </section>
+  );
+}
 
-      <div className="source-grid">
+/** This year and last at a glance, with a way to change them */
+function MonthsCard({ country }: { country: Country }) {
+  return (
+    <section className="panel glass reveal" style={{ '--i': 4 } as React.CSSProperties}>
+      <div className="panel-head">
         <div>
-          <span className="source-k">Publication lag</span>
-          <span className="source-v">
-            {country.lagMonths} month{country.lagMonths === 1 ? '' : 's'}
-          </span>
+          <h2 className="panel-title">Months</h2>
+          <p className="panel-desc">{country.latestCompleted ? `Latest completed ${fmtMonth(country.latestCompleted)}` : 'No months completed yet'}</p>
         </div>
-        <div>
-          <span className="source-k">Latest completed</span>
-          <span className="source-v">{country.latestCompleted ? fmtMonth(country.latestCompleted) : '—'}</span>
-        </div>
+        <EditMonthsLink code={country.code} button />
+      </div>
+      <MonthGrid country={country} years={yearsFor(country).slice(0, 2)} compact />
+      <div className="months-card-foot">
+        <MonthLegend />
+        <Link href={`/countries/${country.code}`} className="link">
+          All years <Icon.ChevronRight size={14} />
+        </Link>
       </div>
     </section>
   );
@@ -122,7 +132,7 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
   const toast = useToast();
   const router = useRouter();
   const isProd = Boolean(health?.isProd);
-  const latest = country.recentPeriods[country.recentPeriods.length - 1] ?? '';
+  const latest = latestPublished(country);
 
   const [range, setRange] = useState(false);
   const [start, setStart] = useState(latest);
@@ -163,11 +173,11 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
         tradeType: flow,
         mode: effectiveMode,
       });
-      toast('ok', 'Extraction started', `${country.name} · ${fmtRange([start, end])}`);
+      toast('ok', 'Extraction started', `${country.name} · ${fmtRange([start, end])} marked extracting`);
       refreshActivity();
       router.push(`/extractions/${runId}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not reach the API server.');
+      setError(errorText(err));
       setBusy(false);
     }
   }
@@ -177,7 +187,7 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
       <div className="panel-head">
         <div>
           <h2 className="panel-title">Extraction details</h2>
-          <p className="panel-desc">Runs on the server; open it on the Extractions page to follow its logs.</p>
+          <p className="panel-desc">The chosen months are marked extracting. Mark them completed on Edit months once the files are checked.</p>
         </div>
       </div>
 
@@ -247,7 +257,7 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
             spellCheck={false}
           />
           <p className="field-help">
-            {codes.length ? `${codes.length} code${codes.length === 1 ? '' : 's'} replace the dataset. ` : ''}
+            {codes.length ? `${plural(codes.length, 'code')} replace the dataset. ` : ''}
             {country.hsCodeHint}
           </p>
         </details>
@@ -262,15 +272,15 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
         <div className="note note-warn">
           <Icon.Alert />
           <span>
-            {overlap.map(fmtMonth).join(', ')} {overlap.length === 1 ? 'is' : 'are'} already marked completed. Extracting again replaces{' '}
-            {overlap.length === 1 ? 'its file' : 'their files'}.
+            {overlap.map(fmtMonth).join(', ')} {overlap.length === 1 ? 'is' : 'are'} already completed. Extracting again replaces{' '}
+            {overlap.length === 1 ? 'its file' : 'their files'} and marks {overlap.length === 1 ? 'it' : 'them'} extracting.
           </span>
         </div>
       )}
 
       <div className="panel-foot">
         <span className="foot-summary">
-          {start ? `${country.name} · ${fmtRange([start, end])} · ${codes.length ? `${codes.length} HS codes` : `${savedCount.toLocaleString()} ${effectiveMode} codes`}` : ' '}
+          {start ? `${country.name} · ${fmtRange([start, end])} · ${codes.length ? plural(codes.length, 'HS code') : `${savedCount.toLocaleString()} ${effectiveMode} codes`}` : ' '}
         </span>
         <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || !country.enabled} onClick={run}>
           Run extraction
@@ -284,7 +294,7 @@ function ExtractForm({ country, countrySelect }: { country: Country; countrySele
 function UploadForm({ country, countrySelect }: { country: Country; countrySelect: React.ReactNode }) {
   const { files, refreshFiles } = useApp();
   const toast = useToast();
-  const latest = country.recentPeriods[country.recentPeriods.length - 1] ?? '';
+  const latest = latestPublished(country);
   const [period, setPeriod] = useState(latest);
   const [picked, setPicked] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -301,10 +311,10 @@ function UploadForm({ country, countrySelect }: { country: Country; countrySelec
         await api.upload(country.code, period, file);
         done++;
       } catch (err) {
-        toast('err', `Could not upload ${file.name}`, err instanceof ApiError ? err.message : 'The API server did not respond.');
+        toast('err', `Could not upload ${file.name}`, errorText(err));
       }
     }
-    if (done) toast('ok', 'Uploaded', `${done} file${done === 1 ? '' : 's'} for ${country.name} ${fmtMonth(period)}`);
+    if (done) toast('ok', 'Uploaded', `${plural(done, 'file')} for ${country.name} ${fmtMonth(period)}`);
     setPicked([]);
     if (input.current) input.current.value = '';
     refreshFiles();
@@ -358,7 +368,7 @@ function UploadForm({ country, countrySelect }: { country: Country; countrySelec
       <div className="panel-foot">
         <span className="foot-summary">{period ? `${country.name} · ${fmtMonth(period)}` : ' '}</span>
         <Button variant="primary" icon={<Icon.Plus />} loading={busy} disabled={!period || !picked.length} onClick={upload}>
-          Upload {picked.length > 1 ? `${picked.length} files` : 'file'}
+          Upload {picked.length > 1 ? plural(picked.length, 'file') : 'file'}
         </Button>
       </div>
 
@@ -431,7 +441,10 @@ export function ExtractView() {
       ) : (
         <ExtractForm country={country} countrySelect={countrySelect} />
       )}
-      <SourceCard country={country} />
+      <div className="side-stack">
+        <MonthsCard country={country} />
+        <SourceCard country={country} />
+      </div>
     </div>
   );
 }

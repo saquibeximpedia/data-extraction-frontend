@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useApp } from './store';
+import type { Country } from './types';
 
 /**
  * Returns the keys whose signature changed since the last render (or are new),
@@ -27,4 +29,11 @@ export function useChangedKeys(items: { key: string; signature: string }[]): Set
   }, [fingerprint]);
 
   return changed;
+}
+
+/** A country from the loaded list: undefined while loading, null when there is no such code */
+export function useCountry(code: string): Country | null | undefined {
+  const { countries } = useApp();
+  if (!countries) return undefined;
+  return countries.find((c) => c.code === code.toUpperCase()) ?? null;
 }
