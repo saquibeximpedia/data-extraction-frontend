@@ -220,7 +220,6 @@ a { color: inherit; text-decoration: none; }
 .page-sub { color: var(--muted); }
 .overview-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 20px; align-items: start; }
 
-/* Scheduler info: a quiet meta line under the page title */
 
 .text-btn { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; font-size: 12.5px; font-weight: 500; color: var(--accent); cursor: pointer; }
 .text-btn:hover:not(:disabled) { text-decoration: underline; }
@@ -236,7 +235,9 @@ a { color: inherit; text-decoration: none; }
 .panel { border-radius: var(--r-card); padding: 22px; }
 .panel-flush { padding: 0; overflow: hidden; }
 .padded { padding: 18px 22px; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.panel-head-text { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .panel-head.padded { margin-bottom: 0; }
 .panel-title { font-family: var(--display); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
 .panel-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -357,7 +358,7 @@ a { color: inherit; text-decoration: none; }
 
 /* ============================================================
    Runs & files
-   ============================================================ */.group-chevron { display: grid; color: var(--muted); transition: transform 0.2s var(--ease); }
+   ============================================================ */
 
 .table-wrap { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
@@ -1029,7 +1030,6 @@ a { color: inherit; text-decoration: none; }
 /* ============================================================
    Files: search, selection, country/year groups, history
    ============================================================ */
-.files-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .search {
   flex: 1 1 260px; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px;
   border-radius: var(--r-pill); background: var(--well-bg); border: 1px solid var(--well-border); color: var(--muted);
@@ -1042,8 +1042,8 @@ a { color: inherit; text-decoration: none; }
 .bulk-text { flex: 1; font-size: 13px; color: var(--text-2); }
 
 /* Forms */
-.inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }.btn-danger-ghost { color: var(--red); }
-.remove-warning { display: grid; gap: 12px; }
+.inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.btn-danger-ghost { color: var(--red); }
 
 @media (max-width: 760px) {  .col-updated { display: none; }
   /* Four tabs plus the side buttons must fit a phone: log out keeps only its icon */
@@ -1058,7 +1058,6 @@ a { color: inherit; text-decoration: none; }
   .nav-tab { padding: 0 8px; font-size: 13px; }
 }
 
-/* A collapsed drawer row takes no space */
 
 .modal-icon-neutral { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
 
@@ -1094,11 +1093,7 @@ a { color: inherit; text-decoration: none; }
 /* ============================================================
    Extract, extractions, files, admin
    ============================================================ */
-.advanced { grid-column: 1 / -1; border: 1px dashed var(--line-strong); border-radius: var(--r-field); padding: 10px 14px; }
-.advanced summary { cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); }
-.advanced[open] summary { margin-bottom: 10px; color: var(--text-2); }
 .span-2 { grid-column: 1 / -1; }
-.file-input { padding-top: 8px; height: auto; min-height: 40px; }
 .pre-wrap { white-space: pre-wrap; }
 .recent-files { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line-strong); display: grid; gap: 8px; }
 .recent-files ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -1140,15 +1135,6 @@ span.month-cell, .year-label.static { cursor: default; }
 .year-grid.compact .month-cell { height: 28px; font-size: 12px; border-radius: 8px; }
 .months-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
 
-.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.summary-tile { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: var(--r-field); background: var(--well-bg); border: 1px solid var(--well-border); }
-.summary-value { font-family: var(--display); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
-
-.chip-link { display: inline-flex; align-items: center; text-decoration: none; }
-.admin-form { max-width: 760px; }
 .country-pick { width: 280px; max-width: 100%; }
 .new-code { width: 200px; margin-bottom: 16px; }
 
-@media (max-width: 760px) {
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}

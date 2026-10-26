@@ -111,6 +111,8 @@ export interface ServiceHealth {
   startedAt?: string;
   running?: number;
   countries?: string[];
+  /** Whether its database tables are set up and its countries published (older services don't say) */
+  database?: { ok: boolean; error?: string };
 }
 
 export interface RunFlag {

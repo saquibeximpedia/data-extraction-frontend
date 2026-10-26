@@ -1,7 +1,13 @@
 /** plural(3, 'file') -> "3 files" */
 export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
-export function fmtDate(value?: string): string {
+/** "IMPORT" -> "Import", "COMPLETED" -> "Completed" */
+export const capitalize = (word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+
+/** ["IMPORT", "EXPORT"] -> "Import & Export" */
+export const fmtFlows = (flows: string[]) => (flows.length ? flows.map(capitalize).join(' & ') : '—');
+
+export function fmtDate(value?: string | null): string {
   return value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
 
@@ -10,6 +16,9 @@ export function fmtMonth(period: string): string {
   const [y, m] = period.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
+
+/** "2026-08" -> "Aug" */
+const fmtMonthOnly = (period: string) => new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: 'short' });
 
 /** "3 min ago", "2 h ago", "yesterday"; falls back to the date after a week */
 export function fmtRelative(value?: string | null): string {
@@ -42,15 +51,25 @@ export function fmtMs(ms: number): string {
 
 export const fmtDuration = (from: string, to: string) => fmtMs(new Date(to).getTime() - new Date(from).getTime());
 
-/** "2026-01"…"2026-09" -> "Jan 2026 – Sep 2026" (one month shows once) */
+/** First and last of the periods: "Jul – Sep 2026", "Nov 2025 – Feb 2026", or one month once */
 export function fmtRange(periods: string[]): string {
   if (!periods.length) return '';
-  const first = periods[0];
-  const last = periods[periods.length - 1];
-  return first === last ? fmtMonth(first) : `${fmtMonth(first)} – ${fmtMonth(last)}`;
+  const [first, last] = [periods[0], periods[periods.length - 1]].sort();
+  if (first === last) return fmtMonth(first);
+  if (first.slice(0, 4) === last.slice(0, 4)) return `${fmtMonthOnly(first)} – ${fmtMonth(last)}`;
+  return `${fmtMonth(first)} – ${fmtMonth(last)}`;
 }
 
-/** What a run covered, e.g. "ZAF · Jan 2026 – Sep 2026 · 10,008 saved codes · import & export" */
+/** The site's host name, e.g. "www.stats.gov" */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'source';
+  }
+}
+
+/** What a run covered, e.g. "ZAF · Jan – Sep 2026 · 10,008 saved codes · import & export" */
 export function describePlan(plan: { countryCode: string; periods?: string[]; tradeTypes?: string[]; hsCodeSource?: string; hsCodeCount?: number; hsCodes?: string[] }): string {
   const count = plan.hsCodeCount ?? plan.hsCodes?.length;
   const kind = plan.hsCodeSource === 'custom' ? 'custom code' : plan.hsCodeSource === 'test' ? 'test code' : 'saved code';

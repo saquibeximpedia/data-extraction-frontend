@@ -218,4 +218,16 @@ export const Icon = {
       <path d="M6 6l12 12M18 6 6 18" />
     </Svg>
   ),
+  User: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </Svg>
+  ),
+  Inbox: ({ size = 16 }: P) => (
+    <Svg size={size}>
+      <path d="M4 13.5 6.2 5.6A2 2 0 0 1 8.1 4h7.8a2 2 0 0 1 1.9 1.6L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <path d="M4 13.5h4.5l1.5 2.5h4l1.5-2.5H20" />
+    </Svg>
+  ),
 };

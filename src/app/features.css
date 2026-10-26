@@ -76,7 +76,7 @@
 .strip-cell { width: 12px; height: 18px; border-radius: 4px; background: var(--well-bg); border: 1px solid var(--well-border); }
 .strip-cell.state-completed { background: var(--green); border-color: transparent; opacity: 0.85; }
 .strip-cell.state-extracting { background: var(--amber-bar); border-color: transparent; }
-.up-to-date { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--green); }
+.up-to-date { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--green); }
 .cell-note { font-size: 12px; }
 .title-with-avatar { display: inline-flex; align-items: center; gap: 12px; }
 .title-with-avatar .code-avatar { width: 34px; height: 34px; border-radius: 11px; font-size: 13px; }
@@ -93,6 +93,15 @@
 .stat-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat-green .stat-sub { color: var(--green); }
 .stat-amber .stat-sub { color: var(--amber); }
+.stat-blue .stat-sub { color: var(--blue); }
+.stat-red .stat-sub { color: var(--red); }
+.stat-link { color: inherit; transition: transform 0.2s var(--ease), background 0.2s; }
+.stat-link:hover { transform: translateY(-1px); background: var(--glass-bg-hover); }
+/* Inside a panel: wells instead of glass cards */
+.stat-row.inset { margin-bottom: 16px; gap: 12px; }
+.stat-inset { border-radius: var(--r-field); padding: 14px 16px; gap: 6px; background: var(--well-bg); border: 1px solid var(--well-border); }
+.stat-inset .stat-label { font-size: 12px; }
+.stat-inset .stat-value { font-size: 22px; }
 .fact-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .mini-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
@@ -218,6 +227,7 @@
 .selection-dock-inner .bulk-text { white-space: nowrap; margin-right: 6px; }
 
 @media (max-width: 1100px) {
+  .stat-row.inset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-grid { grid-template-columns: 1fr; }
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -240,3 +250,78 @@
   .live-cards { grid-template-columns: 1fr; }
   .stat-value { font-size: 20px; }
 }
+
+/* ============================================================
+   Flow: to-do queue, next step, review
+   ============================================================ */
+.text-amber { color: var(--amber); }
+.text-green { color: var(--green); }
+.panel-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
+
+/* Dashboard: one row per country that needs something */
+.todo-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.todo-row { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); transition: background 0.15s; }
+.todo-row:last-child { border-bottom: 0; }
+.todo-row:hover { background: var(--hover); }
+.todo-review { box-shadow: inset 3px 0 0 var(--amber-bar); }
+.todo-running { box-shadow: inset 3px 0 0 var(--blue); }
+.todo-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.todo-step { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.todo-progress { max-width: 420px; margin-top: 4px; }
+.todo-actions { display: flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.todo-done { display: flex; align-items: center; gap: 14px; }
+.todo-done-icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); color: var(--green); }
+.search-sm { flex: 0 1 200px; height: 32px; font-size: 13px; }
+
+/* Country page and run page: the next step, spelled out */
+.next-step {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap;
+  padding: 16px 18px 16px 20px; border-radius: 20px; border: 1px solid var(--well-border); background: var(--well-bg);
+}
+.next-review { background: var(--amber-soft); border-color: var(--amber-line); }
+.next-running { background: var(--blue-soft); border-color: var(--accent-line); }
+.next-due { border-style: dashed; border-color: var(--line-strong); }
+.next-done { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 25%, transparent); }
+.next-step-text { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.next-step-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.next-step-eyebrow .code-avatar { width: 22px; height: 22px; font-size: 9.5px; border-radius: 7px; }
+.next-step-title { font-family: var(--display); font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.next-step-help { font-size: 12.5px; color: var(--text-2); }
+.next-step-help b { font-weight: 600; }
+.next-step-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.next-step .outcome { max-width: 480px; margin-top: 4px; }
+.after-run { display: grid; gap: 12px; }
+
+/* Files: a month's status on its card */
+.month-card-name { display: inline-flex; align-items: center; gap: 6px; }
+.month-card-done { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--green-soft); color: var(--green); }
+.month-card.month-extracting { border-color: var(--amber-line); }
+.month-card-review { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 2px; padding: 8px 4px 0; border-top: 1px dashed var(--amber-line); font-size: 12px; color: var(--amber); }
+
+/* Toast actions (Undo, Review), account menu, modal forms, admin tabs */
+.toast-text { flex: 1; min-width: 0; }
+.toast-action { flex: none; align-self: center; height: 28px; padding: 0 12px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); background: none; font-size: 12.5px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.toast-action:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+.menu-header { display: flex; flex-direction: column; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-header-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-header-sub { font-size: 12px; color: var(--muted); }
+.menu-item-danger, .menu-item-danger .menu-icon { color: var(--red); }
+.modal-form { display: grid; gap: 14px; }
+.admin-tabs { align-self: flex-start; }
+.run-drawer-label { font-weight: 600; font-size: 12px; }
+.run-drawer-count { font-size: 11px; margin: 0 0 0 8px; }
+.btn-xs { height: 24px; padding: 0 10px; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .todo-row { flex-wrap: wrap; padding: 14px 16px; }
+  .todo-actions { width: 100%; justify-content: flex-start; }
+  .next-step-actions, .next-step-actions .btn { width: 100%; }
+  .search-sm { flex-basis: 100%; }
+}
+
+/* Setup: the database isn't ready, so no countries reach the app */
+.setup-panel { border-color: var(--amber-line); }
+.setup-icon { width: 40px; height: 40px; border-radius: 12px; background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
+.setup-steps { margin: 16px 0 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13.5px; color: var(--text-2); }
+.setup-steps b { color: var(--text); font-weight: 600; }
+.setup-sql { margin: 8px 0; padding: 12px 14px; border-radius: 12px; background: var(--well-bg); border: 1px solid var(--well-border); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }

@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { errorText, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Country, ExtractorInfo, TradeFlow } from '@/lib/types';
-import { fmtMonth, fmtRange, plural } from '@/lib/format';
-import { addMonths, latestPublished, periodRange } from '@/lib/months';
+import { fmtFlows, fmtMonth, fmtRange, plural } from '@/lib/format';
+import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { useExtractability } from '@/lib/hooks';
 import { MonthsGlance, SourceCard } from './CountryPanels';
-import { Button, CodeAvatar, Field, Icon, MonthRangePicker, Segmented, Select, Skeleton, useToast, type MonthPreset } from './ui';
+import { PageHead } from './PageHead';
+import { ServiceDown, SetupNeeded, useSetupProblem } from './ServiceNotice';
+import { Button, CodeAvatar, Empty, Field, Icon, MonthRangePicker, Panel, Segmented, Select, Skeleton, type MonthPreset } from './ui';
 
 type Flow = 'ALL' | TradeFlow;
 type Mode = 'complete' | 'test';
@@ -18,7 +20,7 @@ type When = 'month' | 'range';
 
 const splitCodes = (text: string) => [...new Set(text.split(/[\s,;]+/).filter(Boolean))];
 
-/** Presets from the latest month the source should have published */
+/** Presets from the latest month the source should have published; "catch up" covers every due month */
 function presetsFor(country: Country, range: boolean): MonthPreset[] {
   const latest = latestPublished(country);
   if (!latest) return [];
@@ -28,8 +30,10 @@ function presetsFor(country: Country, range: boolean): MonthPreset[] {
       { label: 'Month before', start: addMonths(latest, -1), end: addMonths(latest, -1) },
     ];
   }
+  const due = dueMonths(country);
   const year = Number(latest.slice(0, 4));
   return [
+    ...(due.length > 1 ? [{ label: `Catch up (${plural(due.length, 'month')})`, start: due[0], end: due[due.length - 1] }] : []),
     { label: 'Last 3 months', start: addMonths(latest, -2), end: latest },
     { label: 'Last 6 months', start: addMonths(latest, -5), end: latest },
     { label: 'Last 12 months', start: addMonths(latest, -11), end: latest },
@@ -38,24 +42,24 @@ function presetsFor(country: Country, range: boolean): MonthPreset[] {
   ];
 }
 
-/** The first month after the latest completed one, or the latest published */
-function nextToDo(country: Country): string {
+/** Months to start with: the ones in the link (from the dashboard or "Run again"), else every due month, else the latest */
+function initialMonths(country: Country, params: URLSearchParams): [string, string] {
+  const start = params.get('start') ?? '';
+  const end = params.get('end') ?? start;
+  if (isPeriod(start) && isPeriod(end)) return [start, end].sort() as [string, string];
+  const due = dueMonths(country);
   const latest = latestPublished(country);
-  if (!country.latestCompleted) return latest;
-  const next = addMonths(country.latestCompleted, 1);
-  return latest && next > latest ? latest : next;
+  return due.length ? [due[0], due[due.length - 1]] : [latest, latest];
 }
 
 function ExtractForm({ country, info, countrySelect }: { country: Country; info: ExtractorInfo; countrySelect: React.ReactNode }) {
   const { service, refreshActivity } = useApp();
-  const toast = useToast();
   const router = useRouter();
+  const params = useSearchParams();
   const isProd = Boolean(service.health?.isProd);
-  const suggested = nextToDo(country);
 
-  const [when, setWhen] = useState<When>('month');
-  const [start, setStart] = useState(suggested);
-  const [end, setEnd] = useState(suggested);
+  const [[start, end], setMonths] = useState(() => initialMonths(country, params));
+  const [when, setWhen] = useState<When>(start === end ? 'month' : 'range');
   const [flow, setFlow] = useState<Flow>('ALL');
   const [mode, setMode] = useState<Mode>('complete');
   const [hsOpen, setHsOpen] = useState(false);
@@ -63,26 +67,31 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // A new country starts again from its next month to do
+  // A new country starts again from its own months
   useEffect(() => {
-    setStart(suggested);
-    setEnd(suggested);
+    const next = initialMonths(country, params);
+    setMonths(next);
+    setWhen(next[0] === next[1] ? 'month' : 'range');
     setFlow('ALL');
     setError('');
   }, [country.code]);
 
-  // Back to one month keeps the first
-  useEffect(() => {
-    if (when === 'month') setEnd(start);
-  }, [when]);
+  const pickWhen = (value: When) => {
+    setWhen(value);
+    // Back to one month keeps the first
+    if (value === 'month') setMonths([start, start]);
+  };
 
   const codes = splitCodes(hsText);
   const useCodes = hsOpen && codes.length > 0;
   const effectiveMode: Mode = isProd ? 'complete' : mode;
   const months = start && end ? periodRange(start, end) : [];
-  const overlap = months.filter((p) => country.completedMonths.includes(p));
+  const completed = months.filter((p) => country.completedMonths.includes(p));
+  const extracting = months.filter((p) => country.extractingMonths.includes(p));
   const savedCount = effectiveMode === 'test' ? info.testHsCodeCount : info.hsCodeCount;
   const flows = flow === 'ALL' ? info.tradeTypes : [flow];
+  const latest = latestPublished(country);
+  const unpublished = latest ? months.filter((p) => p > latest) : [];
 
   async function run() {
     setBusy(true);
@@ -96,7 +105,6 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
         tradeType: flow,
         mode: effectiveMode,
       });
-      toast('ok', 'Extraction started', `${country.name} · ${fmtRange([start, end])} marked extracting`);
       refreshActivity();
       router.push(`/extractions/${runId}`);
     } catch (err) {
@@ -105,15 +113,10 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
     }
   }
 
-  return (
-    <section className="panel glass reveal" style={{ '--i': 1 } as React.CSSProperties}>
-      <div className="panel-head">
-        <div>
-          <h2 className="panel-title">New extraction</h2>
-          <p className="panel-desc">Runs on the extraction service at {service.url}. The chosen months are marked extracting.</p>
-        </div>
-      </div>
+  const listMonths = (periods: string[]) => (periods.length > 3 ? plural(periods.length, 'month') : periods.map(fmtMonth).join(', '));
 
+  return (
+    <Panel i={1} title="New extraction" desc={`Runs on the extraction service at ${service.url}. You can follow it live, then check and mark the months completed.`}>
       <div className="extract-form">
         <Field label="Country" htmlFor="country">
           {countrySelect}
@@ -121,14 +124,14 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
 
         <div className="field">
           <div className="field-head">
-            <span className="field-label">{when === 'month' ? 'Month' : 'Date range'}</span>
+            <span className="field-label">{when === 'month' ? 'Month' : 'Months'}</span>
           </div>
           <div className="when-row">
             <div className="when-toggle">
               <Segmented<When>
                 label="One month or a range"
                 value={when}
-                onChange={setWhen}
+                onChange={pickWhen}
                 options={[
                   { value: 'month', label: 'One month' },
                   { value: 'range', label: 'Date range' },
@@ -141,10 +144,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
                 single={when === 'month'}
                 start={start}
                 end={end}
-                onChange={(s, e) => {
-                  setStart(s);
-                  setEnd(e);
-                }}
+                onChange={(s, e) => setMonths([s, e])}
                 marked={country.completedMonths}
                 markedLabel="Already completed"
                 presets={presetsFor(country, when === 'range')}
@@ -154,8 +154,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           {start && (
             <p className="field-help">
               {when === 'range' ? `${plural(months.length, 'month')}. ` : ''}
-              {start === suggested && suggested !== latestPublished(country) ? 'The month after the latest completed one. ' : ''}
-              {latestPublished(country) ? `${fmtMonth(latestPublished(country))} is the latest the source should have out.` : ''}
+              {latest ? `${fmtMonth(latest)} is the latest the source should have out.` : ''}
             </p>
           )}
         </div>
@@ -219,13 +218,30 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           <Icon.Alert /> <span>{error}</span>
         </div>
       )}
-      {!error && overlap.length > 0 && (
+      {!error && completed.length > 0 && (
         <div className="note note-warn">
           <Icon.Alert />
           <span>
-            {overlap.length > 3 ? plural(overlap.length, 'month') : overlap.map(fmtMonth).join(', ')} {overlap.length === 1 ? 'is' : 'are'} already completed. Extracting again replaces{' '}
-            {overlap.length === 1 ? 'its file' : 'their files'} and marks {overlap.length === 1 ? 'it' : 'them'} extracting.
+            {listMonths(completed)} {completed.length === 1 ? 'is' : 'are'} already completed. Extracting again replaces {completed.length === 1 ? 'its file' : 'their files'} and marks{' '}
+            {completed.length === 1 ? 'it' : 'them'} extracting until checked again.
           </span>
+        </div>
+      )}
+      {!error && extracting.length > 0 && (
+        <div className="note note-warn">
+          <Icon.Alert />
+          <span>
+            {listMonths(extracting)} {extracting.length === 1 ? 'was' : 'were'} extracted already and {extracting.length === 1 ? 'is' : 'are'} waiting to be checked.{' '}
+            <Link href={`/countries/${country.code}`} className="link">
+              Review instead
+            </Link>
+          </span>
+        </div>
+      )}
+      {!error && unpublished.length > 0 && (
+        <div className="note note-warn">
+          <Icon.Alert />
+          <span>{listMonths(unpublished)} may not be published yet, so the source can return no rows.</span>
         </div>
       )}
 
@@ -237,7 +253,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           </div>
           <div>
             <dt>Flows</dt>
-            <dd>{flows.map((f) => f.charAt(0) + f.slice(1).toLowerCase()).join(' & ')}</dd>
+            <dd>{fmtFlows(flows)}</dd>
           </div>
           <div>
             <dt>HS codes</dt>
@@ -245,48 +261,30 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           </div>
         </dl>
         <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
-          Run extraction
+          Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
         </Button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
-/** Shown instead of the form while the service is down */
-function ServiceDown() {
-  const { service, checkService } = useApp();
-  const [checking, setChecking] = useState(false);
+function FormSkeleton() {
   return (
-    <section className="panel glass reveal offline-panel" style={{ '--i': 1 } as React.CSSProperties}>
-      <span className="offline-icon">
-        <Icon.Plug size={22} />
-      </span>
-      <h2 className="panel-title">The extraction service is offline</h2>
-      <p className="panel-desc">
-        Nothing answered at <span className="mono">{service.url}</span>
-        {service.error ? ` (${service.error.replace(/\.$/, '')})` : ''}. Start the backend, or point this browser at the one you are running.
-      </p>
-      <div className="inline-form">
-        <Button
-          variant="secondary"
-          icon={<Icon.Refresh size={14} />}
-          loading={checking}
-          onClick={() => {
-            setChecking(true);
-            checkService().finally(() => setChecking(false));
-          }}
-        >
-          Check again
-        </Button>
-        <Link href="/settings" className="btn btn-primary btn-md">
-          <Icon.Gear size={14} /> Change URL
-        </Link>
-      </div>
-    </section>
+    <div className="overview-grid">
+      <section className="panel glass skeleton-rows">
+        <Skeleton height={24} width={160} />
+        <Skeleton height={42} radius={999} />
+        <Skeleton height={42} radius={999} />
+        <Skeleton height={80} radius={16} />
+      </section>
+      <section className="panel glass">
+        <Skeleton height={200} />
+      </section>
+    </div>
   );
 }
 
-export function ExtractView() {
+function ExtractBody() {
   const { countries, service, extractors } = useApp();
   const extractability = useExtractability();
   const params = useSearchParams();
@@ -297,39 +295,27 @@ export function ExtractView() {
   const requestedCountry = countries?.find((c) => c.code === requested);
   const country = (requestedCountry?.kind === 'api' ? requestedCountry : null) ?? extractable.find((c) => extractability(c.code).ok) ?? extractable[0];
   const info = extractors?.find((e) => e.code === country?.code);
+  const setupProblem = useSetupProblem();
 
   if (service.status === 'offline') return <ServiceDown />;
-  if (!countries || service.status === 'checking' || !extractors) {
-    return (
-      <div className="overview-grid">
-        <section className="panel glass skeleton-rows">
-          <Skeleton height={24} width={160} />
-          <Skeleton height={42} radius={999} />
-          <Skeleton height={42} radius={999} />
-          <Skeleton height={80} radius={16} />
-        </section>
-        <section className="panel glass">
-          <Skeleton height={200} />
-        </section>
-      </div>
-    );
-  }
+  if (!countries || service.status === 'checking' || !extractors) return <FormSkeleton />;
 
   if (requestedCountry?.kind === 'manual') {
     return (
-      <section className="panel glass reveal">
-        <p className="empty">
+      <Panel>
+        <Empty>
           {requestedCountry.name} is download-only: its files are uploaded, not extracted.{' '}
           <Link href={`/countries/${requestedCountry.code}#upload`} className="link">
             Upload files
           </Link>
-        </p>
-      </section>
+        </Empty>
+      </Panel>
     );
   }
-  if (!country) return <p className="empty">The extraction service has no countries yet.</p>;
+  if (setupProblem && !country) return <SetupNeeded problem={setupProblem} />;
+  if (!country) return <Empty>The extraction service has no countries yet.</Empty>;
 
-  // The country lives in the URL, so the dashboard can link straight to one
+  // The country lives in the URL, so the dashboard can link straight to one (picking another drops the months)
   const countrySelect = (
     <Select
       id="country"
@@ -337,6 +323,7 @@ export function ExtractView() {
       onChange={(code) => router.replace(`/extract?country=${code}`)}
       options={extractable.map((c) => {
         const status = extractability(c.code);
+        const due = dueMonths(c);
         const e = extractors.find((x) => x.code === c.code);
         return {
           value: c.code,
@@ -344,7 +331,7 @@ export function ExtractView() {
           meta: c.code,
           disabled: !status.ok,
           hint: status.ok
-            ? `${c.latestCompleted ? `Latest done ${fmtMonth(c.latestCompleted)}` : 'Nothing done yet'} · ${(e?.hsCodeCount ?? 0).toLocaleString()} saved codes`
+            ? `${due.length ? `${fmtRange(due)} due` : c.latestCompleted ? `Up to date (${fmtMonth(c.latestCompleted)})` : 'Nothing done yet'} · ${(e?.hsCodeCount ?? 0).toLocaleString()} saved codes`
             : status.reason,
           prefix: <CodeAvatar code={c.code} muted={!status.ok} />,
         };
@@ -358,19 +345,28 @@ export function ExtractView() {
       {info && status.ok ? (
         <ExtractForm country={country} info={info} countrySelect={countrySelect} />
       ) : (
-        <section className="panel glass reveal">
+        <Panel i={1}>
           <Field label="Country" htmlFor="country">
             {countrySelect}
           </Field>
           <div className="note note-warn">
             <Icon.Alert /> <span>{status.reason}</span>
           </div>
-        </section>
+        </Panel>
       )}
       <div className="side-stack">
         <MonthsGlance country={country} i={2} />
         <SourceCard country={country} i={3} />
       </div>
     </div>
+  );
+}
+
+export function ExtractView() {
+  return (
+    <>
+      <PageHead title="Extract" sub="Pick a country, the months and the trade flow, then run. Each month's file is replaced." />
+      <ExtractBody />
+    </>
   );
 }

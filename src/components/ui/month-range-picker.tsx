@@ -1,16 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { fmtMonth as label, fmtRange } from '@/lib/format';
+import { MONTH_LABELS, nowPeriod, yearPeriods } from '@/lib/months';
 import { usePopover, PopoverPanel } from './popover';
 import { Icon } from './icons';
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const key = (year: number, monthIndex: number) => `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
-const label = (period: string) => {
-  const [y, m] = period.split('-').map(Number);
-  return `${MONTHS[m - 1]} ${y}`;
-};
 
 export interface MonthPreset {
   label: string;
@@ -56,7 +50,7 @@ export function MonthRangePicker({
 
   // While choosing the end, preview the range under the pointer
   const [lo, hi] = anchor ? [anchor, hover ?? anchor].sort() : [start, end];
-  const today = key(new Date().getFullYear(), new Date().getMonth());
+  const today = nowPeriod();
 
   function choose(period: string) {
     if (single) {
@@ -73,7 +67,7 @@ export function MonthRangePicker({
     close();
   }
 
-  const text = !start ? 'Pick months' : start === end ? label(start) : `${label(start)} – ${label(end)}`;
+  const text = start ? fmtRange([start, end]) : 'Pick months';
 
   return (
     <div className="popover-root" ref={rootRef}>
@@ -110,8 +104,8 @@ export function MonthRangePicker({
           <p className="mp-hint">{single ? 'Pick a month' : anchor ? `From ${label(anchor)} — now pick the last month` : 'Pick the first month'}</p>
 
           <div className="mp-grid" onMouseLeave={() => setHover(null)}>
-            {MONTHS.map((m, i) => {
-              const p = key(year, i);
+            {yearPeriods(year).map((p, i) => {
+              const m = MONTH_LABELS[i];
               const inRange = lo && hi && p >= lo && p <= hi;
               const isEdge = p === lo || p === hi;
               return (

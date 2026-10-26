@@ -4,25 +4,31 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { PageHead } from '@/components/PageHead';
+import { Empty, Panel } from '@/components/ui';
 
 const SECTIONS = [
   { href: '/admin/users', label: 'Users' },
-  { href: '/admin/user/create', label: 'New user' },
-  { href: '/admin/country/edit', label: 'Countries' },
+  { href: '/admin/countries', label: 'Countries' },
 ];
 
-/** Every /admin page: admins only, with links between the sections */
+/** Every /admin page: admins only, with tabs between the sections */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { isAdmin } = useApp();
   const pathname = usePathname();
-  if (!isAdmin) return <p className="empty">Only admins can open this page.</p>;
+  if (!isAdmin) {
+    return (
+      <Panel>
+        <Empty>Only admins can open this page.</Empty>
+      </Panel>
+    );
+  }
 
   return (
     <>
       <PageHead title="Admin" sub="Manage accounts and the country details users see." />
-      <nav className="chip-group reveal" aria-label="Admin sections">
+      <nav className="year-tabs admin-tabs reveal" aria-label="Admin sections">
         {SECTIONS.map((s) => (
-          <Link key={s.href} href={s.href} className={`chip-btn chip-link ${pathname === s.href ? 'active' : ''}`} aria-current={pathname === s.href ? 'page' : undefined}>
+          <Link key={s.href} href={s.href} className={`year-tab ${pathname === s.href ? 'active' : ''}`} aria-current={pathname === s.href ? 'page' : undefined}>
             {s.label}
           </Link>
         ))}

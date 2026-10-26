@@ -24,6 +24,13 @@ export function addMonths(period: string, delta: number): string {
   return `${Math.floor(i / 12)}-${pad((i % 12) + 1)}`;
 }
 
+/** monthsBetween("2026-01", "2026-04") -> 3 */
+export function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
 /** Inclusive, ascending months from start to end (either order) */
 export function periodRange(start: string, end: string): string[] {
   const [lo, hi] = [start, end].sort();
@@ -52,6 +59,20 @@ export function yearsFor(country: Country, extra = 0): number[] {
 
 /** The latest month the source should have published by now */
 export const latestPublished = (country: Country) => country.recentPeriods[country.recentPeriods.length - 1] ?? '';
+
+/**
+ * Published months still to extract (or upload), oldest first: those after the latest completed
+ * month up to the latest published, skipping months already extracting. With nothing completed
+ * yet, only the latest published month. At most `max` months.
+ */
+export function dueMonths(country: Country, max = 24): string[] {
+  const latest = latestPublished(country);
+  if (!latest) return [];
+  const from = country.latestCompleted ? addMonths(country.latestCompleted, 1) : latest;
+  if (from > latest) return [];
+  const capped = monthsBetween(from, latest) >= max ? addMonths(latest, -(max - 1)) : from;
+  return periodRange(capped, latest).filter((p) => !country.extractingMonths.includes(p));
+}
 
 /** A month's status for a country */
 export function monthState(country: Country, period: string): MonthState {

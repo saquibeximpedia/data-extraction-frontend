@@ -1,15 +1,47 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
+import { capitalize } from '@/lib/format';
+import { describeRun } from '@/lib/runs';
+import type { Run } from '@/lib/types';
 import { AppHeader } from '@/components/AppHeader';
 import { ListPageSkeleton, OverviewSkeleton } from '@/components/PageSkeletons';
+import { useToast } from '@/components/ui';
 
 function skeletonFor(href: string) {
   if (href === '/') return <ListPageSkeleton titleWidth={140} />;
   if (href === '/extract') return <OverviewSkeleton />;
   return <ListPageSkeleton titleWidth={130} />;
+}
+
+/** Says when an extraction ends, on whatever page you are, with a link to its results */
+function useRunEndedToasts() {
+  const { runs } = useApp();
+  const toast = useToast();
+  const router = useRouter();
+  const seen = useRef<Map<string, Run['status']> | null>(null);
+
+  useEffect(() => {
+    // Signed out: start over, so the next sign-in doesn't announce what ended meanwhile
+    if (!runs) {
+      seen.current = null;
+      return;
+    }
+    const before = seen.current;
+    // Statuses of runs missing from this list are kept: a live run can drop out briefly before the history has its end
+    seen.current = new Map([...(before ?? []), ...runs.map((r) => [r.id, r.status] as const)]);
+    if (!before) return;
+    for (const run of runs) {
+      if (before.get(run.id) !== 'RUNNING' || run.status === 'RUNNING') continue;
+      const ok = run.status === 'COMPLETED';
+      toast(ok ? 'ok' : 'err', ok ? 'Extraction finished: check the files' : `Extraction ${capitalize(run.status).toLowerCase()}`, describeRun(run), {
+        label: ok ? 'Review' : 'Open',
+        onClick: () => router.push(`/extractions/${run.id}`),
+      });
+    }
+  }, [runs, toast, router]);
 }
 
 /**
@@ -21,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [pending, setPending] = useState<string | null>(null);
+  useRunEndedToasts();
 
   useEffect(() => {
     if (auth === 'out') router.replace('/login');

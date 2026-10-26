@@ -1,8 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useToast } from '@/components/ui/toast';
+import { api, errorText } from './api';
+import { fmtRange, plural } from './format';
+import { monthState } from './months';
+import { countryStatus, type CountryStatus } from './status';
 import { useApp } from './store';
-import type { Country } from './types';
+import type { Country, MonthStatus } from './types';
 
 /**
  * Returns the keys whose signature changed since the last render (or are new),
@@ -38,6 +43,17 @@ export function useCountry(code: string): Country | null | undefined {
   return countries.find((c) => c.code === code.toUpperCase()) ?? null;
 }
 
+/** What each country needs next (see countryStatus), by code */
+export function useCountryStatuses(): Map<string, CountryStatus> {
+  const { countries, runs } = useApp();
+  return useMemo(() => new Map((countries ?? []).map((c) => [c.code, countryStatus(c, runs)])), [countries, runs]);
+}
+
+export function useCountryStatus(country: Country): CountryStatus {
+  const { runs } = useApp();
+  return useMemo(() => countryStatus(country, runs), [country, runs]);
+}
+
 /**
  * Whether the live extraction service can extract a country right now.
  * reason: 'offline' when the service is down (callers usually just hide the action), otherwise
@@ -56,4 +72,73 @@ export function useExtractability() {
     },
     [serviceLive, extractors]
   );
+}
+
+/**
+ * Runs an action with a busy flag and a toast for the outcome. `run` resolves to the task's
+ * result, or undefined when it failed (the error is already shown).
+ */
+export function useAction() {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const run = useCallback(
+    async <T,>(task: () => Promise<T>, success: string | ((result: T) => string), then?: (result: T) => void, failure = 'Could not save'): Promise<T | undefined> => {
+      setBusy(true);
+      try {
+        const result = await task();
+        if (success) toast('ok', typeof success === 'function' ? success(result) : success);
+        then?.(result);
+        return result;
+      } catch (err) {
+        toast('err', failure, errorText(err));
+        return undefined;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [toast]
+  );
+  return { busy, run };
+}
+
+/**
+ * Sets months of a country to one status (null clears them), updates the country everywhere,
+ * and confirms with a toast that can undo it. Resolves to whether it saved.
+ */
+export function useSetMonths() {
+  const { putCountry } = useApp();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const setMonths = useCallback(
+    async (country: Country, periods: string[], status: MonthStatus | null): Promise<boolean> => {
+      if (!periods.length) return false;
+      const before = periods.map((period) => {
+        const s = monthState(country, period);
+        return { period, status: s === 'none' ? null : s };
+      });
+      setBusy(true);
+      try {
+        const r = await api.setMonths(country.code, periods.map((period) => ({ period, status })));
+        putCountry(r.country);
+        toast('ok', `${country.name}: ${plural(periods.length, 'month')} ${status ? `marked ${status}` : 'cleared'}`, fmtRange(periods), {
+          label: 'Undo',
+          onClick: () =>
+            api
+              .setMonths(country.code, before)
+              .then((u) => putCountry(u.country))
+              .catch((err) => toast('err', 'Could not undo', errorText(err))),
+        });
+        return true;
+      } catch (err) {
+        toast('err', 'Could not save the months', errorText(err));
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [putCountry, toast]
+  );
+
+  return { busy, setMonths };
 }

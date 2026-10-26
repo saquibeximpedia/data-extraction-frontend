@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import Link from 'next/link';
 import { usePopover, FloatingPanel } from './popover';
 import { Icon } from './icons';
 
@@ -11,10 +12,26 @@ export interface MenuItem {
   href?: string;
   /** Draws a divider above this item */
   separator?: boolean;
+  danger?: boolean;
 }
 
-/** "More actions" dropdown, e.g. on a table row. Floats above scroll containers. */
-export function Menu({ items, label = 'More actions' }: { items: MenuItem[]; label?: string }) {
+/**
+ * Dropdown of actions, e.g. on a table row. Floats above scroll containers.
+ * The trigger is a "more" icon unless `trigger` gives its content and class; `header` sits above the items.
+ */
+export function Menu({
+  items,
+  label = 'More actions',
+  trigger,
+  header,
+  width = 248,
+}: {
+  items: MenuItem[];
+  label?: string;
+  trigger?: { content: React.ReactNode; className: string };
+  header?: React.ReactNode;
+  width?: number;
+}) {
   const { open, setOpen, close, rootRef, triggerRef, panelRef } = usePopover();
   const dismiss = useCallback(() => setOpen(false), [setOpen]);
 
@@ -23,17 +40,18 @@ export function Menu({ items, label = 'More actions' }: { items: MenuItem[]; lab
       <button
         ref={triggerRef}
         type="button"
-        className="btn btn-ghost btn-sm btn-icon"
+        className={trigger?.className ?? 'btn btn-ghost btn-sm btn-icon'}
         aria-label={label}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <Icon.More />
+        {trigger?.content ?? <Icon.More />}
       </button>
       {open && (
-        <FloatingPanel anchor={triggerRef.current} panelRef={panelRef} onDismiss={dismiss} width={248} role="menu">
+        <FloatingPanel anchor={triggerRef.current} panelRef={panelRef} onDismiss={dismiss} width={width} role="menu">
+          {header && <div className="menu-header">{header}</div>}
           {items.map((item, i) => {
             const content = (
               <>
@@ -41,18 +59,19 @@ export function Menu({ items, label = 'More actions' }: { items: MenuItem[]; lab
                 <span className="menu-label">{item.label}</span>
               </>
             );
+            const className = `menu-item ${item.danger ? 'menu-item-danger' : ''}`;
             return (
               <div key={i}>
                 {item.separator && <div className="menu-sep" />}
                 {item.href ? (
-                  <a role="menuitem" className="menu-item" href={item.href} onClick={() => close(false)}>
+                  <Link role="menuitem" className={className} href={item.href} onClick={() => close(false)}>
                     {content}
-                  </a>
+                  </Link>
                 ) : (
                   <button
                     role="menuitem"
                     type="button"
-                    className="menu-item"
+                    className={className}
                     onClick={() => {
                       item.onSelect?.();
                       close();

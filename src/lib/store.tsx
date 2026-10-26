@@ -212,6 +212,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(timer);
   }, [auth, runningCount, refreshActivity]);
 
+  // The service publishes its countries once its database is set up: reload them when that happens
+  const databaseOk = live ? service.health?.database?.ok : undefined;
+  const databaseWasOk = useRef(databaseOk);
+  useEffect(() => {
+    if (auth === 'in' && databaseOk && databaseWasOk.current === false) refreshCountries();
+    if (databaseOk !== undefined) databaseWasOk.current = databaseOk;
+  }, [auth, databaseOk, refreshCountries]);
+
   const runs = useMemo(() => mergeRuns(history, liveRuns), [history, liveRuns]);
 
   const value = useMemo<AppState>(

@@ -6,7 +6,7 @@ import { PageHead } from '@/components/PageHead';
 export default function ExtractionsPage() {
   return (
     <>
-      <PageHead title="Extractions" sub="What runs on the extraction service now, and every previous extraction. Logs are live only while an extraction runs." />
+      <PageHead title="Extractions" sub="What runs on the extraction service now, and every previous extraction. Open one for live logs while it runs, or its results and next step after." />
       <ExtractionsList />
     </>
   );

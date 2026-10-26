@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, errorText } from '@/lib/api';
+import { api } from '@/lib/api';
+import { useAction } from '@/lib/hooks';
 import { useApp } from '@/lib/store';
 import type { Country } from '@/lib/types';
 import { fmtRange, plural } from '@/lib/format';
 import { monthState, nowPeriod, periodRange, type MonthState } from '@/lib/months';
 import { MonthGrid } from './MonthGrid';
-import { Button, Icon, MonthRangePicker, useToast } from './ui';
+import { Button, Icon, MonthRangePicker } from './ui';
 
 const BRUSHES: { value: MonthState; label: string; hint: string }[] = [
   { value: 'completed', label: 'Completed', hint: 'Extracted and checked' },
@@ -22,12 +23,11 @@ const BRUSHES: { value: MonthState; label: string; hint: string }[] = [
  */
 export function MonthPainter({ country, years, onDone }: { country: Country; years: number[]; onDone: () => void }) {
   const { putCountry } = useApp();
-  const toast = useToast();
+  const { busy: saving, run } = useAction();
   const [brush, setBrush] = useState<MonthState>('completed');
   const [staged, setStaged] = useState<Map<string, MonthState>>(new Map());
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
-  const [saving, setSaving] = useState(false);
   const painting = useRef(false);
   const anchor = useRef<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -80,22 +80,13 @@ export function MonthPainter({ country, years, onDone }: { country: Country; yea
   const count = (s: MonthState) => changes.filter(([, v]) => v === s).length;
   const summary = BRUSHES.map((b) => ({ ...b, n: count(b.value) })).filter((b) => b.n > 0);
 
-  async function save() {
-    setSaving(true);
-    try {
-      const r = await api.setMonths(
-        country.code,
-        changes.map(([period, s]) => ({ period, status: s === 'none' ? null : s }))
-      );
+  function save() {
+    const body = changes.map(([period, s]) => ({ period, status: s === 'none' ? null : s }));
+    run(() => api.setMonths(country.code, body), (r) => `${country.name}: ${plural(r.changed, 'month')} changed`, (r) => {
       putCountry(r.country);
-      toast('ok', 'Months saved', `${country.name}: ${plural(r.changed, 'month')} changed`);
       setStaged(new Map());
       onDone();
-    } catch (err) {
-      toast('err', 'Could not save', errorText(err));
-    } finally {
-      setSaving(false);
-    }
+    });
   }
 
   return (

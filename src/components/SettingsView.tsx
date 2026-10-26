@@ -5,7 +5,7 @@ import { checkService, defaultServiceUrl, savedServiceUrl } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import { fmtRelative } from '@/lib/format';
 import type { ServiceHealth } from '@/lib/types';
-import { Badge, Button, Field, Icon, useToast } from './ui';
+import { Badge, Button, Field, Icon, Panel, StatusDot, useToast } from './ui';
 
 type TestResult = { ok: true; health: ServiceHealth } | { ok: false; error: string };
 
@@ -58,16 +58,10 @@ export function SettingsView() {
 
   return (
     <div className="settings-grid">
-      <section className="panel glass reveal" style={{ '--i': 1 } as React.CSSProperties}>
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">Extraction service</h2>
-            <p className="panel-desc">The Node backend that runs extractions. Your browser calls it directly, so one running on this computer works too.</p>
-          </div>
-        </div>
+      <Panel i={1} title="Extraction service" desc="The Node backend that runs extractions. Your browser calls it directly, so one running on this computer works too.">
 
         <div className={`service-status service-${service.status}`}>
-          <span className={`dot ${service.status === 'live' ? 'dot-green dot-live' : service.status === 'offline' ? 'dot-red' : ''}`} />
+          <StatusDot tone={service.status === 'live' ? 'green' : service.status === 'offline' ? 'red' : undefined} live={service.status === 'live'} />
           <div className="service-status-text">
             <span className="cell-strong">{service.status === 'live' ? 'Live' : service.status === 'offline' ? 'Offline' : 'Checking…'}</span>
             <span className="cell-sub mono">{service.url}</span>
@@ -158,15 +152,9 @@ export function SettingsView() {
             </div>
           </div>
         </div>
-      </section>
+      </Panel>
 
-      <section className="panel glass reveal" style={{ '--i': 2 } as React.CSSProperties}>
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">Account</h2>
-            <p className="panel-desc">Accounts are created by an admin.</p>
-          </div>
-        </div>
+      <Panel i={2} title="Account" desc="Accounts are created by an admin.">
         <dl className="service-facts single">
           <div>
             <dt>Signed in as</dt>
@@ -177,7 +165,7 @@ export function SettingsView() {
             <dd>{isAdmin ? 'Admin' : 'User'}</dd>
           </div>
         </dl>
-      </section>
+      </Panel>
     </div>
   );
 }

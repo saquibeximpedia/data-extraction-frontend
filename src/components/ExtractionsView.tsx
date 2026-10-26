@@ -3,147 +3,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, errorText, extractor } from '@/lib/api';
+import { api, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Run, RunLog } from '@/lib/types';
-import { describePlan, fmtDate, fmtDay, fmtDuration, fmtMs, fmtRelative, fmtTime, plural } from '@/lib/format';
+import { fmtDate, fmtDay, fmtMonth, fmtMs, fmtRange, fmtRelative, fmtTime, plural } from '@/lib/format';
 import { useChangedKeys } from '@/lib/hooks';
-import { Badge, Button, formatLogMessage, Icon, Skeleton, useToast, type Tone } from './ui';
-
-const STATUS_TONE: Record<Run['status'], Tone> = { COMPLETED: 'green', RUNNING: 'blue', FAILED: 'red', INTERRUPTED: 'amber', STOPPED: 'amber' };
-
-function StatusBadge({ run }: { run: Run }) {
-  const { serviceLive } = useApp();
-  // The database says running, but the service that runs it can't be reached to confirm
-  if (run.status === 'RUNNING' && !serviceLive) return <Badge tone="amber">Running? Service offline</Badge>;
-  return (
-    <Badge tone={STATUS_TONE[run.status]} live={run.status === 'RUNNING'}>
-      {run.status.charAt(0) + run.status.slice(1).toLowerCase()}
-    </Badge>
-  );
-}
-
-const describeRun = (run: Run) => run.params?.plans?.map(describePlan).join('; ') || 'Extraction';
-const fmtRecords = (run: Run) => (run.stats.records === undefined ? '—' : run.stats.records.toLocaleString());
-const timeTaken = (run: Run) => (run.finishedAt ? fmtDuration(run.startedAt, run.finishedAt) : '—');
-
-/** Flags and problems worth a person's attention */
-function runNotes(run: Run): { tone: 'amber' | 'red'; text: string }[] {
-  const s = run.stats;
-  return [
-    ...(s.flags ?? []).map((f) => ({ tone: 'amber' as const, text: f.message })),
-    ...Object.entries(s.invalidHsCodes ?? {}).map(([k, v]) => ({ tone: 'amber' as const, text: `${k}: ${plural(v.length, 'invalid HS code')} skipped` })),
-    ...(run.error ? [{ tone: 'red' as const, text: run.error }] : []),
-  ];
-}
-
-function useProgress(run: Run) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (run.status !== 'RUNNING') return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [run.status]);
-
-  const s = run.stats;
-  const finished = s.completed + s.noData + s.failed + s.skipped;
-  const total = Math.max(s.planned ?? 0, finished);
-  const elapsedMs = Math.max(1000, (run.finishedAt ? new Date(run.finishedAt).getTime() : now) - new Date(run.startedAt).getTime());
-  const perSec = (s.completed + s.noData + s.failed) / (elapsedMs / 1000);
-  const remaining = Math.max(0, total - finished);
-  return {
-    finished,
-    total,
-    remaining,
-    elapsedMs,
-    perMin: perSec * 60,
-    pct: total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0,
-    eta: finished >= 3 && perSec > 0 && remaining > 0 ? `~${fmtMs((remaining / perSec) * 1000)}` : '',
-  };
-}
-
-/** Stacked bar: each segment is a share of the run's planned requests */
-function Outcome({ run }: { run: Run }) {
-  const s = run.stats;
-  const parts = [
-    { key: 'ok', n: s.completed, label: 'with data' },
-    { key: 'none', n: s.noData, label: '0 records' },
-    { key: 'err', n: s.failed, label: 'failed' },
-    { key: 'skip', n: s.skipped, label: 'skipped' },
-  ].filter((p) => p.n > 0);
-  const finished = parts.reduce((sum, p) => sum + p.n, 0);
-  const total = Math.max(s.planned ?? 0, finished, 1);
-
-  return (
-    <div className="outcome">
-      <div className="outcome-bar" title={`${finished.toLocaleString()} of ${(s.planned ?? finished).toLocaleString()} requests`}>
-        {parts.map((p) => (
-          <span key={p.key} className={`seg seg-${p.key}`} style={{ width: `${(p.n / total) * 100}%` }} />
-        ))}
-      </div>
-      <div className="outcome-text">
-        {parts.length === 0
-          ? 'Nothing to do'
-          : parts.map((p, i) => (
-              <span key={p.key}>
-                {i > 0 && ' · '}
-                <b>{p.n.toLocaleString()}</b> {p.label}
-              </span>
-            ))}
-      </div>
-    </div>
-  );
-}
-
-function Progress({ run }: { run: Run }) {
-  const p = useProgress(run);
-  return (
-    <div className="outcome">
-      <div className="stats-progress-track">
-        <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
-      </div>
-      <div className="outcome-text">
-        <b>{p.pct}%</b> · {p.finished.toLocaleString()} / {p.total.toLocaleString()} requests
-        {p.eta ? ` · ${p.eta} left` : ''}
-      </div>
-    </div>
-  );
-}
-
-function StopButton({ run }: { run: Run }) {
-  const { refreshRuns, serviceLive } = useApp();
-  const toast = useToast();
-  const [stopping, setStopping] = useState(false);
-  if (!serviceLive) return null;
-  async function stop(e: React.MouseEvent) {
-    e.stopPropagation();
-    setStopping(true);
-    try {
-      await extractor.stopRun(run.id);
-      toast('ok', 'Extraction stopping', 'Requests in flight finish; files are saved for the months that returned rows.');
-      refreshRuns();
-    } catch (err) {
-      toast('err', 'Could not stop the extraction', errorText(err));
-    } finally {
-      setStopping(false);
-    }
-  }
-  return (
-    <Button size="sm" variant="secondary" className="btn-stop" loading={stopping} icon={<Icon.Stop size={12} />} onClick={stop}>
-      Stop
-    </Button>
-  );
-}
-
-/** A running extraction's elapsed time ticks every second */
-function Elapsed({ run }: { run: Run }) {
-  return <>{fmtMs(useProgress(run).elapsedMs)}</>;
-}
+import { describeRun, fmtRecords, isRunning, needsAttention, requestCount, runNotes, runPeriods, timeTaken } from '@/lib/runs';
+import { extractHref, MarkCompletedButton } from './CountryAction';
+import { Elapsed, formatLogMessage, RunBar, RunFiles, RunOutcome, RunStatusBadge, StopButton, useProgress } from './RunParts';
+import { ServiceNotice } from './ServiceNotice';
+import { Badge, Button, CodeAvatar, Empty, Icon, LoadingPanel, Panel, ProgressBar, revealStyle, Skeleton, StatTiles, StatusDot, useToast } from './ui';
 
 function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
   const router = useRouter();
   const notes = runNotes(run);
-  const running = run.status === 'RUNNING';
 
   return (
     <tr className={`clickable ${flash ? 'flash' : ''}`} onClick={() => router.push(`/extractions/${run.id}`)}>
@@ -156,17 +29,19 @@ function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
           {describeRun(run)}
         </Link>
         <div className="cell-sub row-meta">
-          <StatusBadge run={run} />
+          <RunStatusBadge run={run} />
           {notes.length > 0 && <Badge tone={notes.some((n) => n.tone === 'red') ? 'red' : 'amber'}>{plural(notes.length, 'flag')}</Badge>}
           {run.params?.startedBy && <span>by {run.params.startedBy}</span>}
         </div>
       </td>
-      <td className="cell-outcome">{running ? <Progress run={run} /> : <Outcome run={run} />}</td>
+      <td className="cell-outcome">
+        <RunBar run={run} />
+      </td>
       <td className="nowrap cell-sub-color">{fmtRecords(run)}</td>
-      <td className="nowrap cell-sub-color">{running ? <Elapsed run={run} /> : timeTaken(run)}</td>
+      <td className="nowrap cell-sub-color">{isRunning(run) ? <Elapsed run={run} /> : timeTaken(run)}</td>
       <td className="cell-actions nowrap">
         <div className="row-actions">
-          {running && <StopButton run={run} />}
+          {isRunning(run) && <StopButton run={run} />}
           <span className="row-chevron">
             <Icon.ChevronRight size={15} />
           </span>
@@ -178,33 +53,17 @@ function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
 
 type Filter = 'all' | 'attention';
 
-const needsAttention = (r: Run) => r.status === 'FAILED' || r.status === 'INTERRUPTED' || r.stats.failed > 0 || (r.stats.flags?.length ?? 0) > 0;
-
 /** Extractions running on the service right now, with their progress */
 function LiveSection() {
-  const { runs, service, serviceLive } = useApp();
-  const live = (runs ?? []).filter((r) => r.status === 'RUNNING');
-
-  if (service.status === 'offline') {
-    return (
-      <div className="service-note reveal">
-        <span className="dot dot-red" />
-        <span>
-          <b>Live extractions are unavailable:</b> the extraction service at <span className="mono">{service.url}</span> is offline. History below comes from the database.
-        </span>
-        <Link href="/settings" className="btn btn-secondary btn-sm">
-          <Icon.Gear size={13} /> Settings
-        </Link>
-      </div>
-    );
-  }
+  const { runs, serviceLive } = useApp();
+  const live = (runs ?? []).filter(isRunning);
   if (!serviceLive) return null;
 
   return (
-    <section className="live-section reveal" style={{ '--i': 1 } as React.CSSProperties} aria-label="Running now">
+    <section className="live-section reveal" style={revealStyle(1)} aria-label="Running now">
       <div className="section-head">
         <h2 className="section-title">
-          <span className="dot dot-green dot-live" /> Running now
+          <StatusDot tone="green" live /> Running now
         </h2>
         <Link href="/extract" className="btn btn-primary btn-sm">
           <Icon.Play size={13} /> New extraction
@@ -231,9 +90,7 @@ function LiveCard({ run }: { run: Run }) {
         <span className="cell-strong">{describeRun(run)}</span>
         <StopButton run={run} />
       </div>
-      <div className="stats-progress-track">
-        <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
-      </div>
+      <ProgressBar pct={p.pct} />
       <div className="live-card-meta">
         <span>
           <b>{p.pct}%</b> · {p.finished.toLocaleString()} / {p.total.toLocaleString()} requests
@@ -254,7 +111,7 @@ export function ExtractionsList() {
   const { runs, refreshing, refreshRuns, serviceLive } = useApp();
   const [filter, setFilter] = useState<Filter>('all');
   // While the service is live, its running extractions have their own section above
-  const list = useMemo(() => (runs ?? []).filter((r) => !(serviceLive && r.status === 'RUNNING')), [runs, serviceLive]);
+  const list = useMemo(() => (runs ?? []).filter((r) => !(serviceLive && isRunning(r))), [runs, serviceLive]);
   const shown = filter === 'all' ? list : list.filter(needsAttention);
   const changed = useChangedKeys(list.map((r) => ({ key: r.id, signature: r.status })));
   const attention = list.filter(needsAttention).length;
@@ -265,68 +122,127 @@ export function ExtractionsList() {
 
   return (
     <>
-    <LiveSection />
-    <section className="panel glass panel-flush reveal" style={{ '--i': 2 } as React.CSSProperties}>
-      <div className="panel-head padded" style={{ flexWrap: 'wrap' }}>
-        <div>
-          <h2 className="panel-title">Previous extractions</h2>
-          <p className="panel-desc">{runs ? `${list.length} most recent` : 'Loading…'}</p>
-        </div>
-        <div className="toolbar">
-          <div className="chip-group" role="group" aria-label="Filter extractions">
-            {filters.map(([value, label]) => (
-              <button key={value} type="button" className={`chip-btn ${filter === value ? 'active' : ''}`} onClick={() => setFilter(value)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing.runs} onClick={refreshRuns}>
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {runs === null ? (
-        <div className="padded skeleton-rows">
-          <Skeleton height={36} />
-          <Skeleton height={36} />
-        </div>
-      ) : shown.length === 0 ? (
-        <p className="empty">
-          {list.length ? 'No extractions match this filter.' : 'No extractions yet.'}{' '}
-          {serviceLive && (
-            <Link href="/extract" className="link">
-              Start one
-            </Link>
-          )}
-        </p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th style={{ width: 96 }}>Started</th>
-                <th>Extraction</th>
-                <th style={{ width: 280 }}>Progress</th>
-                <th style={{ width: 100 }}>Records</th>
-                <th style={{ width: 100 }}>Time taken</th>
-                <th style={{ width: 110 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <ExtractionRow key={r.id} run={r} flash={changed.has(r.id)} />
+      <ServiceNotice impact="Live progress and new extractions are unavailable; the history below comes from the database." />
+      <LiveSection />
+      <Panel
+        i={2}
+        flush
+        title="Previous extractions"
+        desc={runs ? `${list.length} most recent` : 'Loading…'}
+        actions={
+          <div className="toolbar">
+            <div className="chip-group" role="group" aria-label="Filter extractions">
+              {filters.map(([value, label]) => (
+                <button key={value} type="button" className={`chip-btn ${filter === value ? 'active' : ''}`} aria-pressed={filter === value} onClick={() => setFilter(value)}>
+                  {label}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+            </div>
+            <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing.runs} onClick={refreshRuns}>
+              Refresh
+            </Button>
+          </div>
+        }
+      >
+        {runs === null ? (
+          <div className="padded skeleton-rows">
+            <Skeleton height={36} />
+            <Skeleton height={36} />
+          </div>
+        ) : shown.length === 0 ? (
+          <Empty>
+            {list.length ? 'No extractions match this filter.' : 'No extractions yet.'}{' '}
+            {serviceLive && (
+              <Link href="/extract" className="link">
+                Start one
+              </Link>
+            )}
+          </Empty>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 96 }}>Started</th>
+                  <th>Extraction</th>
+                  <th style={{ width: 280 }}>Progress</th>
+                  <th style={{ width: 100 }}>Records</th>
+                  <th style={{ width: 100 }}>Time taken</th>
+                  <th style={{ width: 110 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r) => (
+                  <ExtractionRow key={r.id} run={r} flash={changed.has(r.id)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
     </>
   );
 }
 
-/** One extraction: flags, then live logs while it runs, or its summary once it ended */
+/**
+ * After a run: for each country it covered, the months still waiting to be checked (with one
+ * click to mark them completed), or a way to run it again when it did not finish.
+ */
+function AfterRun({ run }: { run: Run }) {
+  const { countries } = useApp();
+  const plans = run.params?.plans ?? [];
+  const failed = run.status !== 'COMPLETED';
+  const items = plans
+    .map((plan) => {
+      const country = countries?.find((c) => c.code === plan.countryCode);
+      const toCheck = country ? runPeriods(run, country.code).filter((p) => country.extractingMonths.includes(p)) : [];
+      const done = country ? runPeriods(run, country.code).filter((p) => country.completedMonths.includes(p)) : [];
+      return country ? { plan, country, toCheck, done } : null;
+    })
+    .filter((x) => x !== null);
+  if (!items.length) return null;
+
+  return (
+    <div className="after-run">
+      {items.map(({ plan, country, toCheck, done }) => (
+        <div key={plan.countryCode} className={`next-step ${toCheck.length ? 'next-review' : failed ? 'next-due' : 'next-done'}`}>
+          <div className="next-step-text">
+            <span className="next-step-eyebrow">
+              <CodeAvatar code={country.code} /> {country.name}
+            </span>
+            <span className="next-step-title">
+              {toCheck.length
+                ? `${fmtRange(toCheck)}: check the files, then mark ${toCheck.length === 1 ? 'it' : 'them'} completed`
+                : done.length
+                  ? `${fmtRange(done)} ${done.length === 1 ? 'is' : 'are'} marked completed`
+                  : failed
+                    ? `${fmtRange(plan.periods)} did not finish`
+                    : 'Nothing left to check'}
+            </span>
+            {toCheck.length > 0 && failed && <span className="next-step-help">This extraction did not finish, so some months may be incomplete. Run it again if files are missing.</span>}
+          </div>
+          <div className="next-step-actions">
+            {failed && (
+              <Link href={extractHref(country.code, plan.periods)} className="btn btn-secondary btn-md">
+                <Icon.Refresh size={14} /> Run again
+              </Link>
+            )}
+            {toCheck.length > 0 && (
+              <>
+                <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
+                  <Icon.Folder size={14} /> Files
+                </Link>
+                <MarkCompletedButton country={country} periods={toCheck} size="md" label={toCheck.length === 1 ? `Mark ${fmtMonth(toCheck[0])} completed` : `Mark ${plural(toCheck.length, 'month')} completed`} />
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One extraction: flags, then live logs while it runs, or its summary and next step once it ended */
 export function ExtractionDetail({ id }: { id: string }) {
   const { runs, serviceLive } = useApp();
   const fromList = runs?.find((r) => r.id === id);
@@ -342,107 +258,77 @@ export function ExtractionDetail({ id }: { id: string }) {
 
   if (missing) {
     return (
-      <section className="panel glass">
-        <p className="empty">
+      <Panel>
+        <Empty>
           This extraction was not found.{' '}
           <Link href="/extractions" className="link">
             Back to extractions
           </Link>
-        </p>
-      </section>
+        </Empty>
+      </Panel>
     );
   }
-  if (!run) {
-    return (
-      <section className="panel glass">
-        <Skeleton height={240} />
-      </section>
-    );
-  }
+  if (!run) return <LoadingPanel />;
 
   const notes = runNotes(run);
+  const running = isRunning(run);
   return (
-    <section className="panel glass reveal" style={{ '--i': 1 } as React.CSSProperties}>
-      <div className="panel-head" style={{ alignItems: 'flex-start' }}>
-        <div>
-          <h2 className="panel-title">{describeRun(run)}</h2>
-          <p className="panel-desc">
-            Started {fmtDate(run.startedAt)} ({fmtRelative(run.startedAt)}){run.params?.startedBy ? ` by ${run.params.startedBy}` : ''}
-          </p>
-        </div>
-        <div className="live-run-actions">
-          <StatusBadge run={run} />
-          {run.status === 'RUNNING' && <StopButton run={run} />}
-        </div>
-      </div>
+    <>
+      {!running && <AfterRun run={run} />}
+      <Panel
+        i={1}
+        title={describeRun(run)}
+        desc={`Started ${fmtDate(run.startedAt)} (${fmtRelative(run.startedAt)})${run.params?.startedBy ? ` by ${run.params.startedBy}` : ''}`}
+        actions={
+          <div className="live-run-actions">
+            <RunStatusBadge run={run} />
+            {running && <StopButton run={run} />}
+          </div>
+        }
+      >
+        {notes.length > 0 && (
+          <ul className="run-flags">
+            {notes.map((n) => (
+              <li key={n.text} className={`run-flag run-flag-${n.tone}`}>
+                <Icon.Alert size={14} />
+                <span>{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
 
-      {notes.length > 0 && (
-        <ul className="run-flags">
-          {notes.map((n) => (
-            <li key={n.text} className={`run-flag run-flag-${n.tone}`}>
-              <Icon.Alert size={14} />
-              <span>{n.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {run.status === 'RUNNING' && !serviceLive && (
-        <div className="note note-warn note-tight">
-          <Icon.Alert />
-          <span>
-            Live logs and progress come from the extraction service, which is offline. These numbers are the last ones it saved.{' '}
-            <Link href="/settings" className="link">
-              Settings
-            </Link>
-          </span>
-        </div>
-      )}
-      {run.status === 'RUNNING' && serviceLive ? <LiveRun run={run} /> : <RunSummary run={run} />}
-    </section>
-  );
-}
-
-function RunFiles({ files }: { files: string[] }) {
-  if (!files.length) return null;
-  return (
-    <div className="stats-files-section">
-      <div className="stats-files-title">
-        <Icon.File size={12} /> {plural(files.length, 'file')} saved
-      </div>
-      <div className="stats-files-list">
-        {files.map((file) => (
-          <button key={file} type="button" className="stats-file-chip" title={`Download ${file}`} onClick={() => api.download(file)}>
-            <Icon.Download size={11} />
-            <span className="stats-file-name">{file.split('/').pop()}</span>
-          </button>
-        ))}
-      </div>
-    </div>
+        {running && !serviceLive && (
+          <div className="note note-warn note-tight">
+            <Icon.Alert />
+            <span>
+              Live logs and progress come from the extraction service, which is offline. These numbers are the last ones it saved.{' '}
+              <Link href="/settings" className="link">
+                Settings
+              </Link>
+            </span>
+          </div>
+        )}
+        {running && serviceLive ? <LiveRun run={run} /> : <RunSummary run={run} />}
+      </Panel>
+    </>
   );
 }
 
 /** A finished extraction: its logs are gone, so show what it did */
 function RunSummary({ run }: { run: Run }) {
-  const s = run.stats;
-  const tiles = [
-    { label: 'Status', value: <StatusBadge run={run} /> },
-    { label: 'Time taken', value: timeTaken(run) },
-    { label: 'Records', value: fmtRecords(run) },
-    { label: 'Requests', value: Math.max(s.planned ?? 0, s.completed + s.noData + s.failed + s.skipped).toLocaleString() },
-  ];
   return (
     <>
-      <div className="summary-grid">
-        {tiles.map((t) => (
-          <div key={t.label} className="summary-tile">
-            <span className="stats-cell-label">{t.label}</span>
-            <span className="summary-value">{t.value}</span>
-          </div>
-        ))}
-      </div>
-      <Outcome run={run} />
-      <RunFiles files={s.files} />
+      <StatTiles
+        inset
+        tiles={[
+          { label: 'Status', value: <RunStatusBadge run={run} /> },
+          { label: 'Time taken', value: timeTaken(run) },
+          { label: 'Records', value: fmtRecords(run) },
+          { label: 'Requests', value: requestCount(run).toLocaleString() },
+        ]}
+      />
+      <RunOutcome run={run} />
+      <RunFiles files={run.stats.files} />
     </>
   );
 }
@@ -507,13 +393,11 @@ function LiveRun({ run }: { run: Run }) {
     <div className="run-drawer-panel">
       <div className="run-drawer-header">
         <div className="run-drawer-title">
-          <span style={{ fontWeight: 600, fontSize: 12 }}>Live logs</span>
-          <span className="cell-sub" style={{ fontSize: 11, marginLeft: 8 }}>
-            {plural(logs.length, 'line')} · cleared when the extraction ends
-          </span>
+          <span className="run-drawer-label">Live logs</span>
+          <span className="cell-sub run-drawer-count">{plural(logs.length, 'line')} · cleared when the extraction ends</span>
         </div>
         {logs.length > 0 && (
-          <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copyLogs} style={{ height: 24, fontSize: 11 }}>
+          <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copyLogs} className="btn-xs">
             Copy
           </Button>
         )}
@@ -552,9 +436,7 @@ function LiveRun({ run }: { run: Run }) {
             </div>
             <span className="stats-panel-pct">{p.pct}%</span>
           </div>
-          <div className="stats-progress-track">
-            <div className="stats-progress-bar" style={{ width: `${p.pct}%` }} />
-          </div>
+          <ProgressBar pct={p.pct} />
           <div className="stats-timer-grid">
             <div className="stats-timer-cell">
               <span className="stats-cell-label">Elapsed</span>

@@ -6,15 +6,28 @@ Extracting is done by a separate **extraction service**, the Node backend in `..
 
 ## Pages
 
-- **Dashboard**: every country with its latest completed month, the last 12 published months as a strip, and when it last changed. While the extraction service is live, extractable countries get an **Extract** button. Download-only countries get **Upload files**.
-- **Country**: headline numbers, then every year with its months marked **completed**, **extracting** or **not done**. Click **Edit months** to paint them: pick a status, then click or drag across months, click a year for all of it, or shift-click to fill a span. A date range can be painted too. Nothing is saved until **Save changes**. The page also shows the source details, recent extractions, and the upload form for download-only countries.
-- **Extract** (in the navbar only while the service is live): country, one month or a date range (with presets), trade flow, data set, and a slide-down for specific HS codes. Alongside: the months already done (with a link to the full list) and the country's source details.
-- **Extractions**: what runs on the service now (progress, stop), then previous extractions from the database. Open one for live logs while it runs, or its results after.
-- **Files**: countries in a sidebar with file counts and sizes. A country shows year tabs over a 12-month board, one card per month with its files. Search, filter by extracted or uploaded, a "Recent" view, and multi-select to download as one zip or delete.
-- **Settings**: the extraction service URL for this browser (e.g. `http://localhost:3000` when you run it yourself), with a connection test.
-- **Admin** (admins only): accounts and roles; country details and links; download-only countries.
+### The flow
 
-The navbar pill shows whether the extraction service is live (checked every 15 seconds) and opens Settings.
+Each country moves through the same loop, and every page points at the next step:
+
+1. **Due**: the source should have published months that aren't completed yet.
+2. **Extract** them (or **upload** the files, for download-only countries). Extracting marks the months **extracting**.
+3. **Watch** the extraction live. When it ends, a toast says so on whatever page you are on.
+4. **Check** the files, then **mark the months completed** in one click (the toast offers **Undo**).
+
+What a country needs next is worked out in one place (`src/lib/status.ts`): months to check come first, then a running extraction, then due months, otherwise it is up to date.
+
+### Pages
+
+- **Dashboard**: headline numbers (up to date, to check, due, running), then a **To do** list with one step per country, most urgent first, each with its button (*Mark completed*, *View progress*, *Extract Jul – Sep 2026*, *Upload*). Below that, every country with its latest completed month, the last 12 published months as a strip, and its next step. You can filter the list (all, needs action, up to date) and search it.
+- **Country**: headline numbers, a **Next step** card, then every year with its months marked **completed**, **extracting** or **not done**. Click **Edit months** to paint them: pick a status, then click or drag across months, click a year for all of it, or shift-click to fill a span. A date range can be painted too. Nothing is saved until **Save changes**. The page also shows the source details, recent extractions, and, for download-only countries, the upload form, which can mark the month completed after uploading. Admins get **Edit details**.
+- **Extract**: country, one month or a date range, trade flow, data set, and a slide-down for specific HS codes. The months start as every due month (or come from the link, e.g. `/extract?country=ZAF&start=2026-07&end=2026-09`). There is a **Catch up** preset. Warnings appear for months that are already completed, waiting to be checked, or probably not published yet. While the service is offline, this page says so and offers **Check again**.
+- **Extractions**: what runs on the service now (progress, stop), then previous extractions from the database. Open one for live logs while it runs. After it ends, the page shows its results and next step: mark its months completed, or **Run again** with the same months if it didn't finish.
+- **Files**: countries in a sidebar with file counts and sizes. A country shows year tabs over a 12-month board, one card per month with its files and its status. An extracting month has **Mark completed** right on its card. You also get search, a filter for extracted or uploaded files, a "Recent" view, and multi-select to download as one zip or delete.
+- **Settings**: the extraction service URL for this browser (e.g. `http://localhost:3000` when you run it yourself), with a connection test.
+- **Admin** (admins only): **Users** (new user, role, password and delete, all from the list) and **Countries** (details and links; add or remove download-only countries).
+
+The navbar pill shows whether the extraction service is live (checked every 15 seconds) and opens Settings. The account button opens Settings and Sign out.
 
 ## Getting started
 
@@ -66,6 +79,8 @@ src/
 │   ├── login/        # Sign-in
 │   └── (app)/        # Dashboard, countries/[code], extract, extractions (+ [id]), files, settings, admin
 ├── server/           # Server-only code for the routes: supabase, http (auth, errors), countries, runs, files, users
-├── components/       # Page sections; components/ui/ holds the primitives
-└── lib/              # api.ts (this app's API + the extraction service), store.tsx (global state), types, months
+├── components/       # Page sections, plus shared pieces: CountryAction (next-step buttons), RunParts (run status,
+│                     #   progress, stop, files), ServiceNotice; components/ui/ holds the primitives (Panel, StatTiles…)
+└── lib/              # api.ts (this app's API + the extraction service), store.tsx (global state), status.ts (each
+                      #   country's next step), runs.ts, months.ts, format.ts, hooks.ts (useAction, useSetMonths…), types
 ```

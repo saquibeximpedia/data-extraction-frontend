@@ -7,43 +7,70 @@ import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { AdminUser, Country, CountryPatch, Role } from '@/lib/types';
 import { fmtDate, fmtRelative, plural } from '@/lib/format';
-import { Badge, Button, CodeAvatar, ConfirmModal, Field, Icon, Menu, Segmented, Select, Skeleton, useToast, type MenuItem } from './ui';
+import { useAction } from '@/lib/hooks';
+import { Badge, Button, CodeAvatar, ConfirmModal, Field, Icon, LoadingPanel, Menu, Panel, Segmented, Select, Skeleton, useToast, type MenuItem } from './ui';
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: 'user', label: 'User' },
   { value: 'admin', label: 'Admin' },
 ];
 
-/** Runs an admin action with a busy flag, a toast for the outcome, and `then` on success */
-function useAction() {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const run = useCallback(
-    async <T,>(task: () => Promise<T>, ok: string, then?: (result: T) => void) => {
-      setBusy(true);
-      try {
-        const result = await task();
-        toast('ok', ok, '');
-        then?.(result);
-      } catch (err) {
-        toast('err', 'Could not save', errorText(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [toast]
-  );
-  return { busy, run };
-}
-
 // ------------------------------------------------------------------ users
 
-/** /admin/users: every account; admins can delete one, change its role or set its password */
+/** "New user": an account that can sign in straight away */
+function CreateUserModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const { busy, run } = useAction();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<Role>('user');
+
+  // Each time it opens, it starts empty
+  useEffect(() => {
+    if (!open) return;
+    setEmail('');
+    setPassword('');
+    setRole('user');
+  }, [open]);
+
+  const valid = /\S+@\S+\.\S+/.test(email.trim()) && password.length >= 8;
+
+  return (
+    <ConfirmModal
+      open={open}
+      onClose={onClose}
+      onConfirm={() => run(() => api.createUser(email.trim(), password, role), `${email.trim()} can sign in now`, () => (onClose(), onCreated()))}
+      title="New user"
+      icon={<Icon.Plus size={18} />}
+      confirmVariant="primary"
+      confirmLabel="Create account"
+      confirmDisabled={!valid}
+      loading={busy}
+      description={
+        <div className="modal-form">
+          <p className="panel-desc">No email is sent; share the password with them directly.</p>
+          <Field label="Email" htmlFor="new-email">
+            <input id="new-email" className="control" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" autoFocus required />
+          </Field>
+          <Field label="Password (8+ characters)" htmlFor="new-password">
+            <input id="new-password" className="control" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
+          </Field>
+          <Field label="Role">
+            <Segmented<Role> label="Role" value={role} onChange={setRole} options={ROLE_OPTIONS} />
+          </Field>
+          <p className="field-help">Admins can also manage users and country details.</p>
+        </div>
+      }
+    />
+  );
+}
+
+/** /admin/users: every account; admins can add one, delete one, change its role or set its password */
 export function UsersList() {
   const { me } = useApp();
   const toast = useToast();
   const { busy, run } = useAction();
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [creating, setCreating] = useState(false);
   const [toDelete, setToDelete] = useState<AdminUser | null>(null);
   const [toReset, setToReset] = useState<AdminUser | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -66,20 +93,21 @@ export function UsersList() {
       onSelect: () => run(() => api.updateUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }), `${u.email} is now ${u.role === 'admin' ? 'a user' : 'an admin'}`, load),
     },
     { label: 'Set new password', icon: <Icon.Pencil size={14} />, onSelect: () => (setNewPassword(''), setToReset(u)) },
+    { label: 'Delete account', icon: <Icon.Trash size={14} />, separator: true, danger: true, onSelect: () => setToDelete(u) },
   ];
 
   return (
-    <section className="panel glass panel-flush reveal" style={{ '--i': 1 } as React.CSSProperties}>
-      <div className="panel-head padded">
-        <div>
-          <h2 className="panel-title">Users</h2>
-          <p className="panel-desc">{users ? plural(users.length, 'account') : 'Loading…'}</p>
-        </div>
-        <Link href="/admin/user/create" className="btn btn-primary btn-sm">
-          <Icon.Plus size={14} /> New user
-        </Link>
-      </div>
-
+    <Panel
+      i={1}
+      flush
+      title="Users"
+      desc={users ? plural(users.length, 'account') : 'Loading…'}
+      actions={
+        <Button size="sm" variant="primary" icon={<Icon.Plus size={14} />} onClick={() => setCreating(true)}>
+          New user
+        </Button>
+      }
+    >
       {users === null ? (
         <div className="padded">
           <Skeleton height={36} />
@@ -93,7 +121,7 @@ export function UsersList() {
                 <th style={{ width: 110 }}>Role</th>
                 <th style={{ width: 170 }}>Created</th>
                 <th style={{ width: 140 }}>Last sign-in</th>
-                <th style={{ width: 150 }} />
+                <th style={{ width: 60 }} />
               </tr>
             </thead>
             <tbody>
@@ -105,16 +133,7 @@ export function UsersList() {
                   <td>{u.role === 'admin' ? <Badge tone="blue">Admin</Badge> : <Badge>User</Badge>}</td>
                   <td className="cell-sub-color nowrap">{fmtDate(u.createdAt)}</td>
                   <td className="cell-sub-color nowrap">{u.lastSignInAt ? fmtRelative(u.lastSignInAt) : 'Never'}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {u.id !== me?.id && (
-                      <div className="row-actions">
-                        <Button size="sm" variant="ghost" className="btn-danger-ghost" icon={<Icon.Trash size={13} />} onClick={() => setToDelete(u)}>
-                          Delete
-                        </Button>
-                        <Menu items={actions(u)} label={`Manage ${u.email}`} />
-                      </div>
-                    )}
-                  </td>
+                  <td className="cell-actions">{u.id !== me?.id && <Menu items={actions(u)} label={`Manage ${u.email}`} />}</td>
                 </tr>
               ))}
             </tbody>
@@ -122,6 +141,7 @@ export function UsersList() {
         </div>
       )}
 
+      <CreateUserModal open={creating} onClose={() => setCreating(false)} onCreated={load} />
       <ConfirmModal
         open={Boolean(toDelete)}
         onClose={() => setToDelete(null)}
@@ -138,10 +158,11 @@ export function UsersList() {
       <ConfirmModal
         open={Boolean(toReset)}
         onClose={() => setToReset(null)}
-        onConfirm={() => toReset && newPassword.length >= 8 && run(() => api.updateUser(toReset.id, { password: newPassword }), `Password changed for ${toReset.email}`, () => setToReset(null))}
+        onConfirm={() => toReset && run(() => api.updateUser(toReset.id, { password: newPassword }), `Password changed for ${toReset.email}`, () => setToReset(null))}
         title="Set a new password"
+        confirmDisabled={newPassword.length < 8}
         description={
-          <div className="remove-warning">
+          <div className="modal-form">
             <span>
               New password for <b>{toReset?.email}</b>. Tell them directly; no email is sent.
             </span>
@@ -161,49 +182,7 @@ export function UsersList() {
         confirmVariant="primary"
         loading={busy}
       />
-    </section>
-  );
-}
-
-/** /admin/user/create: a new account that can sign in straight away */
-export function CreateUserForm() {
-  const router = useRouter();
-  const { busy, run } = useAction();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('user');
-
-  function create(e: React.FormEvent) {
-    e.preventDefault();
-    run(() => api.createUser(email.trim(), password, role), `${email.trim()} can sign in now`, () => router.push('/admin/users'));
-  }
-
-  return (
-    <form className="panel glass reveal admin-form" style={{ '--i': 1 } as React.CSSProperties} onSubmit={create}>
-      <div className="panel-head">
-        <div>
-          <h2 className="panel-title">New user</h2>
-          <p className="panel-desc">No email is sent; share the password with them directly.</p>
-        </div>
-      </div>
-      <div className="extract-grid">
-        <Field label="Email" htmlFor="new-email">
-          <input id="new-email" className="control" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </Field>
-        <Field label="Password (8+ characters)" htmlFor="new-password">
-          <input id="new-password" className="control" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
-        </Field>
-        <Field label="Role">
-          <Segmented<Role> label="Role" value={role} onChange={setRole} options={ROLE_OPTIONS} />
-        </Field>
-      </div>
-      <div className="panel-foot">
-        <span className="foot-summary">Admins can manage users and country details.</span>
-        <Button type="submit" variant="primary" icon={<Icon.Plus size={14} />} loading={busy} disabled={!email || password.length < 8}>
-          Create account
-        </Button>
-      </div>
-    </form>
+    </Panel>
   );
 }
 
@@ -266,6 +245,7 @@ function EditCountry({ country }: { country: Country }) {
   const { busy, run } = useAction();
   const [form, setForm] = useState(() => toForm(country));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(toForm(country));
 
   return (
     <>
@@ -279,10 +259,13 @@ function EditCountry({ country }: { country: Country }) {
           <span className="foot-summary">Extracted by the extraction service; these fields are what users see.</span>
         )}
         <div className="inline-form">
-          <Button size="sm" variant="ghost" onClick={() => setForm(toForm(country))}>
+          <Link href={`/countries/${country.code}`} className="btn btn-ghost btn-sm">
+            Open page
+          </Link>
+          <Button size="sm" variant="ghost" disabled={!dirty} onClick={() => setForm(toForm(country))}>
             Reset
           </Button>
-          <Button size="sm" variant="primary" loading={busy} onClick={() => run(() => api.updateCountry(country.code, form), `${country.name} saved`, putCountry)}>
+          <Button size="sm" variant="primary" loading={busy} disabled={!dirty} onClick={() => run(() => api.updateCountry(country.code, form), `${country.name} saved`, putCountry)}>
             Save changes
           </Button>
         </div>
@@ -294,7 +277,7 @@ function EditCountry({ country }: { country: Country }) {
           run(() => api.deleteCountry(country.code), `${country.name} removed`, () => {
             setConfirmDelete(false);
             refreshCountries();
-            router.replace('/admin/country/edit');
+            router.replace('/admin/countries');
           })
         }
         title={`Remove ${country.name}?`}
@@ -317,7 +300,7 @@ function NewCountry() {
     const body = { ...form, code: code.trim().toUpperCase(), name: form.name ?? '', sourceUrl: form.sourceUrl ?? '' };
     run(() => api.createCountry(body), `${body.name} added as download-only`, (created) => {
       refreshCountries();
-      router.replace(`/admin/country/edit?code=${created.code}`);
+      router.replace(`/admin/countries?code=${created.code}`);
     });
   }
 
@@ -325,7 +308,7 @@ function NewCountry() {
     <>
       <div className="new-code">
         <Field label="ISO code (3 letters)" htmlFor="new-code">
-          <input id="new-code" className="control" maxLength={3} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="VNM" />
+          <input id="new-code" className="control" maxLength={3} value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="VNM" />
         </Field>
       </div>
       <CountryFields form={form} set={(patch) => setForm((f) => ({ ...f, ...patch }))} kind="manual" />
@@ -339,7 +322,7 @@ function NewCountry() {
   );
 }
 
-/** /admin/country/edit?code=: edit a country's details, or add a download-only country (code=NEW) */
+/** /admin/countries?code=: edit a country's details, or add a download-only country (code=NEW) */
 export function CountryAdmin() {
   const { countries } = useApp();
   const params = useSearchParams();
@@ -347,40 +330,34 @@ export function CountryAdmin() {
   const code = params.get('code')?.toUpperCase() ?? countries?.[0]?.code ?? NEW;
   const country = countries?.find((c) => c.code === code);
 
-  if (!countries) {
-    return (
-      <section className="panel glass">
-        <Skeleton height={240} />
-      </section>
-    );
-  }
+  if (!countries) return <LoadingPanel />;
 
   return (
-    <section className="panel glass reveal" style={{ '--i': 1 } as React.CSSProperties}>
-      <div className="panel-head" style={{ flexWrap: 'wrap' }}>
-        <div>
-          <h2 className="panel-title">{country ? country.name : 'New download-only country'}</h2>
-          <p className="panel-desc">
-            {country?.updatedAt
-              ? `Edited ${fmtRelative(country.updatedAt)}${country.updatedBy ? ` by ${country.updatedBy}` : ''}`
-              : country
-                ? 'Links and details users see on the country page.'
-                : 'For sources that publish files (e.g. Excel) instead of an API.'}
-          </p>
-        </div>
+    <Panel
+      i={1}
+      title={country ? country.name : 'New download-only country'}
+      desc={
+        country?.updatedAt
+          ? `Edited ${fmtRelative(country.updatedAt)}${country.updatedBy ? ` by ${country.updatedBy}` : ''}`
+          : country
+            ? 'Links and details users see on the country page.'
+            : 'For sources that publish files (e.g. Excel) instead of an API.'
+      }
+      actions={
         <div className="country-pick">
           <Select
             id="admin-country"
             value={country ? country.code : NEW}
-            onChange={(value) => router.replace(`/admin/country/edit?code=${value}`)}
+            onChange={(value) => router.replace(`/admin/countries?code=${value}`)}
             options={[
               ...countries.map((c) => ({ value: c.code, label: c.name, meta: c.code, prefix: <CodeAvatar code={c.code} muted={!c.enabled} /> })),
               { value: NEW, label: 'Add download-only country', prefix: <Icon.Plus size={14} /> },
             ]}
           />
         </div>
-      </div>
+      }
+    >
       {country ? <EditCountry key={country.code} country={country} /> : <NewCountry />}
-    </section>
+    </Panel>
   );
 }

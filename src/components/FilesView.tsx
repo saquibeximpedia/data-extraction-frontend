@@ -7,9 +7,10 @@ import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { ExportFile } from '@/lib/types';
 import { fmtDate, fmtMonth, fmtRelative, fmtSize, plural } from '@/lib/format';
-import { useChangedKeys } from '@/lib/hooks';
-import { MONTH_LABELS, nowPeriod, yearPeriods } from '@/lib/months';
-import { Button, CodeAvatar, ConfirmModal, Icon, Menu, Skeleton, useToast, type MenuItem } from './ui';
+import { useAction, useChangedKeys } from '@/lib/hooks';
+import { MONTH_LABELS, monthState, nowPeriod, yearPeriods } from '@/lib/months';
+import { MarkCompletedButton } from './CountryAction';
+import { Button, CodeAvatar, ConfirmModal, Empty, Icon, Menu, revealStyle, Skeleton, useToast, type MenuItem } from './ui';
 
 const RECENT = 'RECENT';
 type Origin = 'all' | 'extracted' | 'uploaded';
@@ -60,7 +61,7 @@ export function FilesView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string[] | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const { busy: deleting, run } = useAction();
 
   const countryName = (code: string) => countries?.find((c) => c.code === code)?.name ?? code;
   const filtered = useMemo(() => files.filter((f) => origin === 'all' || f.origin === origin), [files, origin]);
@@ -115,20 +116,14 @@ export function FilesView() {
     }
   }
 
-  async function confirmDelete() {
+  function confirmDelete() {
     if (!toDelete) return;
-    setDeleting(true);
-    try {
-      const { deleted } = await api.deleteFiles(toDelete);
-      toast('ok', 'Deleted', plural(deleted.length, 'file'));
-      toggle(toDelete, false);
+    const paths = toDelete;
+    run(() => api.deleteFiles(paths), ({ deleted }) => `Deleted ${plural(deleted.length, 'file')}`, () => {
+      toggle(paths, false);
       setToDelete(null);
       refreshFiles();
-    } catch (err) {
-      toast('err', 'Could not delete', errorText(err));
-    } finally {
-      setDeleting(false);
-    }
+    }, 'Could not delete');
   }
 
   const fileActions = (f: ExportFile): MenuItem[] => [
@@ -138,7 +133,7 @@ export function FilesView() {
       onSelect: () => navigator.clipboard?.writeText(f.relativePath).then(() => toast('ok', 'Path copied', f.relativePath)),
     },
     ...(f.countryCode ? [{ label: `Open ${countryName(f.countryCode)}`, icon: <Icon.Calendar size={14} />, href: `/countries/${f.countryCode}` }] : []),
-    { label: 'Delete file', icon: <Icon.Trash size={14} />, separator: true, onSelect: () => setToDelete([f.relativePath]) },
+    { label: 'Delete file', icon: <Icon.Trash size={14} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
 
   /** One file as a compact row: icon, name, facts, actions */
@@ -196,7 +191,7 @@ export function FilesView() {
           </div>
           {results.length > 0 && <Check {...checkFor(pathsOf(results), 'Select all results')} />}
         </div>
-        {results.length ? <ul className="file-list">{results.slice(0, 200).map((f) => fileRow(f, true))}</ul> : <p className="empty">No files match.</p>}
+        {results.length ? <ul className="file-list">{results.slice(0, 200).map((f) => fileRow(f, true))}</ul> : <Empty>No files match.</Empty>}
       </div>
     );
   } else if (!group) {
@@ -212,7 +207,7 @@ export function FilesView() {
         {recent.length ? (
           <ul className="file-list">{recent.map((f) => fileRow(f, true))}</ul>
         ) : (
-          <p className="empty">{files.length ? 'No files of this kind.' : 'No files yet. Run an extraction, or upload files for a download-only country.'}</p>
+          <Empty>{files.length ? 'No files of this kind.' : 'No files yet. Run an extraction, or upload files for a download-only country.'}</Empty>
         )}
       </div>
     );
@@ -224,6 +219,7 @@ export function FilesView() {
     const current = nowPeriod();
     const monthsWithFiles = new Set(group.files.map((f) => f.period).filter(Boolean)).size;
     const latest = group.files.map((f) => f.period).filter(Boolean).sort().pop();
+    const groupCountry = countries?.find((c) => c.code === group.code);
 
     main = (
       <div className="files-main-pad">
@@ -273,9 +269,16 @@ export function FilesView() {
               const inMonth = yearFiles.filter((f) => f.period === p).sort((a, b) => a.origin.localeCompare(b.origin) || a.fileName.localeCompare(b.fileName));
               const future = p > current;
               return (
-                <div key={p} className={`month-card ${inMonth.length ? 'has-files' : 'empty-month'} ${future ? 'future' : ''}`}>
+                <div key={p} className={`month-card ${inMonth.length ? 'has-files' : 'empty-month'} ${future ? 'future' : ''} ${groupCountry ? `month-${monthState(groupCountry, p)}` : ''}`}>
                   <div className="month-card-head">
-                    <span className="month-card-name">{MONTH_LABELS[i]}</span>
+                    <span className="month-card-name">
+                      {MONTH_LABELS[i]}
+                      {groupCountry && monthState(groupCountry, p) === 'completed' && (
+                        <span className="month-card-done" title="Marked completed">
+                          <Icon.Check size={12} />
+                        </span>
+                      )}
+                    </span>
                     {inMonth.length > 0 ? (
                       <>
                         <span className="month-card-size">{fmtSize(sizeOf(inMonth))}</span>
@@ -284,6 +287,12 @@ export function FilesView() {
                     ) : null}
                   </div>
                   {inMonth.length ? <ul className="file-list compact">{inMonth.map((f) => fileRow(f))}</ul> : <span className="month-card-empty">{future ? 'Not out yet' : 'No file'}</span>}
+                  {groupCountry && monthState(groupCountry, p) === 'extracting' && (
+                    <div className="month-card-review">
+                      <span>Extracted, not checked yet</span>
+                      <MarkCompletedButton country={groupCountry} periods={[p]} label="Mark completed" />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -297,7 +306,7 @@ export function FilesView() {
 
   return (
     <>
-      <div className="files-layout reveal" style={{ '--i': 1 } as React.CSSProperties}>
+      <div className="files-layout reveal" style={revealStyle(1)}>
         <aside className="files-side glass" aria-label="Countries">
           <label className="search">
             <Icon.Search size={15} />

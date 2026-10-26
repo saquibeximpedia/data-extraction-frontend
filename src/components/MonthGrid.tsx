@@ -1,10 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import type { Country } from '@/lib/types';
 import { fmtMonth } from '@/lib/format';
 import { MONTH_LABELS, monthState, nowPeriod, yearPeriods, type MonthState } from '@/lib/months';
-import { useExtractability } from '@/lib/hooks';
 import { Icon } from './ui';
 
 const STATE_LABEL: Record<MonthState, string> = { completed: 'Completed', extracting: 'Extracting', none: 'Not done' };
@@ -109,28 +107,5 @@ export function MonthStrip({ country }: { country: Country }) {
         return <span key={p} className={`strip-cell state-${state}`} title={`${fmtMonth(p)} · ${STATE_LABEL[state]}`} />;
       })}
     </div>
-  );
-}
-
-/**
- * The country's main action: Extract (only while the extraction service is live and can extract
- * it) or, for download-only countries, Upload files. Renders nothing otherwise.
- */
-export function ExtractLink({ country, size = 'sm' }: { country: Country; size?: 'sm' | 'md' }) {
-  const extractability = useExtractability();
-  const stop = (e: React.MouseEvent) => e.stopPropagation();
-  if (country.kind === 'manual') {
-    return (
-      <Link href={`/countries/${country.code}#upload`} className={`btn btn-secondary btn-${size}`} onClick={stop}>
-        <Icon.Upload size={14} /> Upload files
-      </Link>
-    );
-  }
-  const { ok, reason } = extractability(country.code);
-  if (!ok) return reason === 'offline' ? null : <span className="faint nowrap cell-note" title={reason}>Not available</span>;
-  return (
-    <Link href={`/extract?country=${country.code}`} className={`btn btn-primary btn-${size}`} onClick={stop}>
-      <Icon.Play size={14} /> Extract
-    </Link>
   );
 }
