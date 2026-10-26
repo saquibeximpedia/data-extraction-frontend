@@ -1,5 +1,22 @@
 'use client';
 
+import { Icon } from './icons';
+
+/** A search box with a clear button */
+export function SearchInput({ value, onChange, placeholder, className = '' }: { value: string; onChange: (value: string) => void; placeholder: string; className?: string }) {
+  return (
+    <label className={`search ${className}`}>
+      <Icon.Search size={15} />
+      <input type="search" className="search-input" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} aria-label={placeholder} />
+      {value && (
+        <button type="button" className="search-clear" onClick={() => onChange('')} aria-label="Clear search">
+          <Icon.X size={12} />
+        </button>
+      )}
+    </label>
+  );
+}
+
 /** Two or three mutually exclusive options with a sliding thumb */
 export function Segmented<T extends string>({
   value,

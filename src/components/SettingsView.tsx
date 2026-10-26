@@ -4,10 +4,7 @@ import { useEffect, useState } from 'react';
 import { checkService, defaultServiceUrl, savedServiceUrl } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import { fmtRelative } from '@/lib/format';
-import type { ServiceHealth } from '@/lib/types';
 import { Badge, Button, Field, Icon, Panel, StatusDot, useToast } from './ui';
-
-type TestResult = { ok: true; health: ServiceHealth } | { ok: false; error: string };
 
 const PRESETS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
@@ -19,7 +16,6 @@ export function SettingsView() {
   const [saved, setSaved] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [testing, setTesting] = useState(false);
-  const [test, setTest] = useState<TestResult | null>(null);
 
   // localStorage is only readable in the browser
   useEffect(() => {
@@ -32,17 +28,23 @@ export function SettingsView() {
   const valid = /^https?:\/\/[^\s/]+/i.test(clean);
   const unchanged = clean === (saved ?? fallback);
 
-  async function runTest(target = clean) {
+  /** Says in a toast whether a service answers at the URL in the field */
+  async function runTest() {
     setTesting(true);
-    setTest(await checkService(target));
+    const result = await checkService(clean);
     setTesting(false);
+    if (result.ok) {
+      const h = result.health;
+      toast('ok', 'The extraction service answers', `${h.environment ?? 'Unknown'} environment · ${h.countries?.length ?? 0} countries · ${h.running ?? 0} running`);
+    } else {
+      toast('err', 'No extraction service there', result.error);
+    }
   }
 
   function save() {
     const value = clean === fallback ? null : clean;
     setServiceUrl(value);
     setSaved(value);
-    setTest(null);
     toast('ok', 'Extraction service URL saved', value ? `This browser now uses ${value}` : 'Back to the default');
   }
 
@@ -50,7 +52,6 @@ export function SettingsView() {
     setServiceUrl(null);
     setSaved(null);
     setUrl(fallback);
-    setTest(null);
     toast('ok', 'Back to the default', fallback);
   }
 
@@ -97,16 +98,13 @@ export function SettingsView() {
           <Field
             label="Service URL"
             htmlFor="service-url"
-            aside={saved ? <Badge tone="blue">Set on this browser</Badge> : <Badge>Default</Badge>}
+            aside={saved ? <Badge tone="green" dot>Set on this browser</Badge> : <Badge>Default</Badge>}
           >
             <input
               id="service-url"
               className="control mono"
               value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setTest(null);
-              }}
+              onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && valid && !unchanged && save()}
               placeholder="http://localhost:3000"
               spellCheck={false}
@@ -115,22 +113,11 @@ export function SettingsView() {
           </Field>
           <div className="chip-group">
             {[...new Set([fallback, ...PRESETS])].map((p) => (
-              <button key={p} type="button" className={`chip-btn ${clean === p ? 'active' : ''}`} onClick={() => (setUrl(p), setTest(null))}>
+              <button key={p} type="button" className={`chip-btn ${clean === p ? 'active' : ''}`} onClick={() => setUrl(p)}>
                 {p === fallback ? `Default · ${p}` : p}
               </button>
             ))}
           </div>
-
-          {test && (
-            <div className={`note ${test.ok ? 'note-ok' : 'note-error'} note-tight`} role="status">
-              {test.ok ? <Icon.Check /> : <Icon.Alert />}
-              <span>
-                {test.ok
-                  ? `It answers: ${test.health.environment ?? 'unknown'} environment, ${test.health.countries?.length ?? 0} countries enabled, ${test.health.running ?? 0} running.`
-                  : test.error}
-              </span>
-            </div>
-          )}
 
           <div className="panel-foot">
             <span className="foot-summary">

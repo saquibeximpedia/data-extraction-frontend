@@ -8,24 +8,38 @@ import { Skeleton } from './ui';
 function HeadSkeleton({ titleWidth = 180 }: { titleWidth?: number }) {
   return (
     <div className="page-head">
-      <Skeleton width={titleWidth} height={36} radius={10} />
-      <Skeleton width={340} height={14} />
+      <Skeleton width={titleWidth} height={26} radius={6} />
+      <Skeleton width={340} height={13} />
     </div>
   );
 }
 
 function TableSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <section className="panel glass panel-flush">
+    <section className="panel panel-flush">
       <div className="panel-head padded">
-        <Skeleton width={120} height={14} />
-        <Skeleton width={90} height={32} radius={999} />
+        <Skeleton width={120} height={16} />
+        <Skeleton width={200} height={30} radius={8} />
       </div>
       <div className="padded skeleton-rows">
         {Array.from({ length: rows }, (_, i) => (
-          <Skeleton key={i} height={40} radius={12} />
+          <Skeleton key={i} height={36} radius={6} />
         ))}
       </div>
+    </section>
+  );
+}
+
+function StatsSkeleton() {
+  return (
+    <section className="stat-row">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="stat-tile">
+          <Skeleton width={90} height={12} />
+          <Skeleton width={60} height={24} radius={6} />
+          <Skeleton width={130} height={11} />
+        </div>
+      ))}
     </section>
   );
 }
@@ -33,31 +47,28 @@ function TableSkeleton({ rows = 4 }: { rows?: number }) {
 export function OverviewSkeleton() {
   return (
     <>
-      <HeadSkeleton titleWidth={200} />
-      <section className="stats glass">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="stat">
-            <Skeleton width={110} height={13} />
-            <Skeleton width={60} height={34} radius={8} />
-            <Skeleton width={150} height={11} />
-          </div>
-        ))}
-      </section>
-      <div className="overview-grid">
-        <section className="panel glass skeleton-rows">
-          <Skeleton width={160} height={20} radius={8} />
-          <div className="extract-grid">
-            <Skeleton height={42} radius={999} />
-            <Skeleton height={42} radius={999} />
-          </div>
-          <Skeleton height={42} radius={999} />
-          <Skeleton height={42} radius={16} />
+      <HeadSkeleton titleWidth={160} />
+      <StatsSkeleton />
+      <TableSkeleton rows={5} />
+    </>
+  );
+}
+
+export function FormSkeleton() {
+  return (
+    <>
+      <HeadSkeleton titleWidth={110} />
+      <div className="extract-layout">
+        <section className="panel skeleton-rows">
+          <Skeleton height={36} radius={8} />
+          <Skeleton height={30} radius={6} />
+          <Skeleton height={36} radius={8} />
+          <Skeleton height={36} radius={8} />
           <div className="skeleton-foot">
-            <Skeleton width={140} height={12} />
-            <Skeleton width={150} height={40} radius={999} />
+            <Skeleton width={160} height={12} />
+            <Skeleton width={140} height={34} radius={8} />
           </div>
         </section>
-        <TableSkeleton rows={3} />
       </div>
     </>
   );

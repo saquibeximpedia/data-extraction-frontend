@@ -12,7 +12,7 @@ const KEY = 'tx_theme';
  */
 export const themeInitScript = `(function(){try{var t=localStorage.getItem('${KEY}');if(t!=='light'&&t!=='dark'){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.dataset.theme=t}catch(e){}})();`;
 
-/** Round glass button that switches light / dark and remembers the choice */
+/** Icon button that switches light / dark and remembers the choice */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>('light');
 
@@ -33,7 +33,7 @@ export function ThemeToggle() {
 
   const label = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
   return (
-    <button type="button" className="glass-btn glass glass-btn-icon" onClick={toggle} aria-label={label} title={label}>
+    <button type="button" className="icon-btn" onClick={toggle} aria-label={label} title={label}>
       {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
     </button>
   );

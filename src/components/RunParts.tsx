@@ -2,22 +2,26 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, extractor } from '@/lib/api';
+import { api, errorText, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Run } from '@/lib/types';
-import { capitalize, describePlan, fmtMs, fmtRelative, plural } from '@/lib/format';
+import { capitalize, describePlan, fmtMonth, fmtMs, fmtRelative, fmtSize, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
 import { describeRun, fmtRecords, isRunning, RUN_TONE } from '@/lib/runs';
-import { Badge, Button, Icon, ProgressBar, StatusDot } from './ui';
+import { Badge, Button, FileIcon, Icon, ProgressBar, StatusDot, useToast } from './ui';
 
 // Pieces of an extraction run shown on several pages: status, progress, outcome, stop, files
 
 export function RunStatusBadge({ run }: { run: Run }) {
   const { serviceLive } = useApp();
   // The database says running, but the service that runs it can't be reached to confirm
-  if (isRunning(run) && !serviceLive) return <Badge tone="amber">Running? Service offline</Badge>;
+  if (isRunning(run) && !serviceLive) return (
+      <Badge tone="amber" dot>
+        Running? Service offline
+      </Badge>
+    );
   return (
-    <Badge tone={RUN_TONE[run.status]} live={isRunning(run)}>
+    <Badge tone={RUN_TONE[run.status]} dot live={isRunning(run)}>
       {capitalize(run.status)}
     </Badge>
   );
@@ -127,23 +131,116 @@ export function StopButton({ run }: { run: Run }) {
   );
 }
 
-/** The files a run saved, each a download chip */
+// {CC}_{YYYY-MM}.csv or {CC}_{YYYY-MM}_part{N}.csv
+const RUN_FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_part(\d+))?\./i;
+
+/**
+ * The files a run saved, grouped by country and month (a big month comes in parts): each file
+ * with its size from storage and a download, each month and the whole run as one zip. Files
+ * deleted since are marked as gone.
+ */
 export function RunFiles({ files }: { files: string[] }) {
+  const { files: stored, countries } = useApp();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
   if (!files.length) return null;
+
+  const rows = [...files].sort().map((path) => {
+    const name = path.split('/').pop() ?? path;
+    const m = name.match(RUN_FILE_RE);
+    const code = m?.[1].toUpperCase();
+    return {
+      path,
+      name,
+      country: code ? (countries?.find((c) => c.code === code)?.name ?? code) : '',
+      period: m?.[2] ?? null,
+      part: m?.[3] ? Number(m[3]) : null,
+      stored: stored?.find((f) => f.relativePath === path),
+    };
+  });
+  type Row = (typeof rows)[number];
+  const isAvailable = (r: Row) => Boolean(r.stored) || stored === null;
+  const available = rows.filter(isAvailable);
+  const sizeOf = (list: Row[]) => list.reduce((n, r) => n + (r.stored?.sizeBytes ?? 0), 0);
+  const total = sizeOf(rows);
+  // One group per country and month, in the order the files sort
+  const groups = [...new Map(rows.map((r) => [`${r.country}|${r.period}`, rows.filter((x) => x.country === r.country && x.period === r.period)])).values()];
+
+  async function download(paths: string[], key: string) {
+    setBusy(key);
+    try {
+      if (paths.length === 1) await api.download(paths[0]);
+      else await api.downloadZip(paths);
+    } catch (err) {
+      toast('err', 'Could not download', errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
-    <div className="stats-files-section">
-      <div className="stats-files-title">
-        <Icon.File size={12} /> {plural(files.length, 'file')} saved
+    <section className="run-files" aria-label="Files saved">
+      <div className="run-files-head">
+        <div>
+          <h3 className="run-files-title">Files saved</h3>
+          <p className="panel-desc">
+            {plural(files.length, 'file')}
+            {total ? ` · ${fmtSize(total)}` : ''}
+            {rows.some((r) => r.part) ? ' · large months are split into parts' : ''}
+          </p>
+        </div>
+        {available.length > 1 && (
+          <Button size="sm" variant="secondary" icon={<Icon.Download size={14} />} loading={busy === 'all'} onClick={() => download(available.map((r) => r.path), 'all')}>
+            Download all (zip)
+          </Button>
+        )}
       </div>
-      <div className="stats-files-list">
-        {files.map((file) => (
-          <button key={file} type="button" className="stats-file-chip" title={`Download ${file}`} onClick={() => api.download(file)}>
-            <Icon.Download size={11} />
-            <span className="stats-file-name">{file.split('/').pop()}</span>
-          </button>
-        ))}
+      <div className="month-list">
+        {groups.map((group) => {
+          const first = group[0];
+          const key = `${first.country}|${first.period}`;
+          const ready = group.filter(isAvailable);
+          const parts = group.filter((r) => r.part).length;
+          return (
+            <section key={key} className="month-group">
+              <header className="month-group-head">
+                <span className="month-group-name">{[first.country, first.period && fmtMonth(first.period)].filter(Boolean).join(' · ') || 'Other files'}</span>
+                <span className="month-group-meta">
+                  {parts ? `${plural(parts, 'part')} · ` : ''}
+                  {sizeOf(group) ? fmtSize(sizeOf(group)) : ''}
+                </span>
+                {ready.length > 1 && (
+                  <span className="month-group-actions">
+                    <Button size="sm" variant="ghost" icon={<Icon.Download size={14} />} loading={busy === key} onClick={() => download(ready.map((r) => r.path), key)}>
+                      Month (zip)
+                    </Button>
+                  </span>
+                )}
+              </header>
+              <ul className="file-list">
+                {group.map((r) => {
+                  const gone = !isAvailable(r);
+                  return (
+                    <li key={r.path} className={`file-row ${gone ? 'is-gone' : ''}`}>
+                      <FileIcon name={r.name} />
+                      <span className="file-row-text" title={r.path}>
+                        <span className="file-row-name">{r.name}</span>
+                        <span className="file-row-meta">
+                          {[r.part && `Part ${r.part} of ${parts}`, r.stored ? fmtSize(r.stored.sizeBytes) : gone ? 'No longer in storage' : 'Whole month'].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                      {!gone && (
+                        <Button size="sm" variant="ghost" iconOnly aria-label={`Download ${r.name}`} title="Download" loading={busy === r.path} icon={<Icon.Download size={16} />} onClick={() => download([r.path], r.path)} />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 

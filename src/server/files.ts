@@ -19,13 +19,19 @@ function fail(action: string, error: { message: string }): never {
   throw new HttpError(502, `${action}: ${error.message}`);
 }
 
-// {CC}_{YYYY-MM}.csv (extracted) or {CC}_{YYYY-MM}__{original name} (uploaded)
-const FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(__.+)?\.[a-z0-9]+$/i;
+// {CC}_{YYYY-MM}.csv or {CC}_{YYYY-MM}_part{N}.csv (extracted), or {CC}_{YYYY-MM}__{original name} (uploaded)
+const FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_part(\d+))?(__.+)?\.[a-z0-9]+$/i;
 
-function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'origin'> {
+function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'origin' | 'part'> {
   const m = (relativePath.split('/').pop() ?? '').match(FILE_RE);
-  if (!m) return { countryCode: null, period: null, origin: 'uploaded' };
-  return { countryCode: m[1].toUpperCase(), period: m[2], origin: m[3] ? 'uploaded' : 'extracted' };
+  if (!m) return { countryCode: null, period: null, origin: 'uploaded', part: null };
+  return { countryCode: m[1].toUpperCase(), period: m[2], origin: m[4] ? 'uploaded' : 'extracted', part: m[3] ? Number(m[3]) : null };
+}
+
+/** Fails with a clear message when SUPABASE_BUCKET is not a bucket of this project */
+export async function assertBucket(): Promise<void> {
+  const { error } = await admin().storage.getBucket(BUCKET);
+  if (error) throw new HttpError(502, `Storage bucket "${BUCKET}" does not exist in this Supabase project. Set SUPABASE_BUCKET to the bucket the extraction service writes to (its own SUPABASE_BUCKET), then redeploy.`);
 }
 
 export const UPLOAD_TYPES: Record<string, string> = {
@@ -68,6 +74,8 @@ export const files = {
       }
     };
     await walk(countryCode ? countryCode.toUpperCase() : '', countryCode ? 1 : 0);
+    // Storage lists a missing bucket as empty: say so, or a wrong SUPABASE_BUCKET looks like "no files yet"
+    if (!out.length) await assertBucket();
     return out.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
   },
 

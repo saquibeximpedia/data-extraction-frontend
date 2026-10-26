@@ -1,14 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { AdminUser, Country, CountryPatch, Role } from '@/lib/types';
 import { fmtDate, fmtRelative, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
-import { Badge, Button, CodeAvatar, ConfirmModal, Field, Icon, LoadingPanel, Menu, Panel, Segmented, Select, Skeleton, useToast, type MenuItem } from './ui';
+import { Badge, Button, ConfirmModal, Empty, Field, Icon, LoadingPanel, Menu, Panel, Segmented, Skeleton, useToast, type MenuItem } from './ui';
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: 'user', label: 'User' },
@@ -64,7 +63,7 @@ function CreateUserModal({ open, onClose, onCreated }: { open: boolean; onClose:
   );
 }
 
-/** /admin/users: every account; admins can add one, delete one, change its role or set its password */
+/** /users: every account; admins can add one, delete one, change its role or set its password */
 export function UsersList() {
   const { me } = useApp();
   const toast = useToast();
@@ -130,7 +129,7 @@ export function UsersList() {
                   <td>
                     <span className="cell-strong">{u.email}</span> {u.id === me?.id && <Badge>You</Badge>}
                   </td>
-                  <td>{u.role === 'admin' ? <Badge tone="blue">Admin</Badge> : <Badge>User</Badge>}</td>
+                  <td>{u.role === 'admin' ? <Badge tone="green" dot>Admin</Badge> : <Badge>User</Badge>}</td>
                   <td className="cell-sub-color nowrap">{fmtDate(u.createdAt)}</td>
                   <td className="cell-sub-color nowrap">{u.lastSignInAt ? fmtRelative(u.lastSignInAt) : 'Never'}</td>
                   <td className="cell-actions">{u.id !== me?.id && <Menu items={actions(u)} label={`Manage ${u.email}`} />}</td>
@@ -259,9 +258,6 @@ function EditCountry({ country }: { country: Country }) {
           <span className="foot-summary">Extracted by the extraction service; these fields are what users see.</span>
         )}
         <div className="inline-form">
-          <Link href={`/countries/${country.code}`} className="btn btn-ghost btn-sm">
-            Open page
-          </Link>
           <Button size="sm" variant="ghost" disabled={!dirty} onClick={() => setForm(toForm(country))}>
             Reset
           </Button>
@@ -277,7 +273,7 @@ function EditCountry({ country }: { country: Country }) {
           run(() => api.deleteCountry(country.code), `${country.name} removed`, () => {
             setConfirmDelete(false);
             refreshCountries();
-            router.replace('/admin/countries');
+            router.replace('/countries');
           })
         }
         title={`Remove ${country.name}?`}
@@ -300,7 +296,7 @@ function NewCountry() {
     const body = { ...form, code: code.trim().toUpperCase(), name: form.name ?? '', sourceUrl: form.sourceUrl ?? '' };
     run(() => api.createCountry(body), `${body.name} added as download-only`, (created) => {
       refreshCountries();
-      router.replace(`/admin/countries?code=${created.code}`);
+      router.replace(`/countries/${created.code}`);
     });
   }
 
@@ -322,39 +318,37 @@ function NewCountry() {
   );
 }
 
-/** /admin/countries?code=: edit a country's details, or add a download-only country (code=NEW) */
-export function CountryAdmin() {
-  const { countries } = useApp();
-  const params = useSearchParams();
-  const router = useRouter();
-  const code = params.get('code')?.toUpperCase() ?? countries?.[0]?.code ?? NEW;
-  const country = countries?.find((c) => c.code === code);
+/** /countries/[code]/edit and /countries/new: a country's details, or a new download-only country (admins only) */
+export function CountryEditor({ code }: { code: string | null }) {
+  const { countries, isAdmin } = useApp();
+  const country = code ? countries?.find((c) => c.code === code.toUpperCase()) : undefined;
 
+  if (!isAdmin) {
+    return (
+      <Panel>
+        <Empty>Only admins can edit countries.</Empty>
+      </Panel>
+    );
+  }
   if (!countries) return <LoadingPanel />;
+  if (code && !country) {
+    return (
+      <Panel>
+        <Empty>There is no country {code.toUpperCase()}.</Empty>
+      </Panel>
+    );
+  }
 
   return (
     <Panel
       i={1}
-      title={country ? country.name : 'New download-only country'}
+      title={country ? 'Details' : 'New download-only country'}
       desc={
         country?.updatedAt
           ? `Edited ${fmtRelative(country.updatedAt)}${country.updatedBy ? ` by ${country.updatedBy}` : ''}`
           : country
             ? 'Links and details users see on the country page.'
             : 'For sources that publish files (e.g. Excel) instead of an API.'
-      }
-      actions={
-        <div className="country-pick">
-          <Select
-            id="admin-country"
-            value={country ? country.code : NEW}
-            onChange={(value) => router.replace(`/admin/countries?code=${value}`)}
-            options={[
-              ...countries.map((c) => ({ value: c.code, label: c.name, meta: c.code, prefix: <CodeAvatar code={c.code} muted={!c.enabled} /> })),
-              { value: NEW, label: 'Add download-only country', prefix: <Icon.Plus size={14} /> },
-            ]}
-          />
-        </div>
       }
     >
       {country ? <EditCountry key={country.code} country={country} /> : <NewCountry />}

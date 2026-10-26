@@ -7,96 +7,77 @@ import { useApp } from '@/lib/store';
 import type { Country, Run } from '@/lib/types';
 import { fmtDate, fmtFlows, fmtMonth, fmtRange, fmtRelative, fmtSize, hostOf, plural } from '@/lib/format';
 import { useCountryStatus, useExtractability, useSetMonths } from '@/lib/hooks';
-import { latestPublished, monthState, yearsFor } from '@/lib/months';
+import { latestPublished, monthState } from '@/lib/months';
 import type { CountryStatus } from '@/lib/status';
-import { describeStep, MarkCompletedButton, NextAction } from './CountryAction';
-import { MonthGrid, MonthLegend } from './MonthGrid';
+import { describeStep, MarkCompletedButton, NextAction, RemoveMonthsButton } from './CountryAction';
 import { MiniRuns, RunProgress } from './RunParts';
-import { Badge, Button, CodeAvatar, Empty, Icon, MonthRangePicker, Panel, revealStyle, StatTiles, StatusDot, useToast } from './ui';
+import { Badge, Button, Empty, Icon, MonthRangePicker, Panel, revealStyle, StatTiles, StatusDot, useToast } from './ui';
 
-/** Where the country's data comes from and how it is fetched */
-export function SourceCard({ country, i = 3 }: { country: Country; i?: number }) {
+/** Where the country's data comes from and how it is fetched: plain text on the page, no card */
+export function SourceInfo({ country, i = 3 }: { country: Country; i?: number }) {
   const extractability = useExtractability();
   const { source } = country;
   const status = country.kind === 'manual' ? null : extractability(country.code);
-  const facts: [string, React.ReactNode][] = [
-    ['Requests', source.endpoint && <span className="mono source-endpoint">{source.endpoint}</span>],
-    ['How it is fetched', source.method],
-    ['What is saved', source.output],
+  const latest = latestPublished(country);
+  const facts: [string, React.ReactNode, boolean?][] = [
+    ['Publication lag', `${plural(country.lagMonths, 'month')}${country.publishDay > 1 ? `, around day ${country.publishDay}` : ''}`],
+    ['Latest expected', latest ? fmtMonth(latest) : '—'],
+    ...(country.kind === 'api'
+      ? ([
+          ['Trade flows', fmtFlows(country.tradeTypes)],
+          [
+            'Saved HS codes',
+            <>
+              {country.hsCodeCount.toLocaleString()}
+              {country.testHsCodeCount ? <span className="faint"> · {country.testHsCodeCount.toLocaleString()} test</span> : null}
+            </>,
+          ],
+        ] as [string, React.ReactNode][])
+      : []),
     ['HS codes accepted', country.hsCodeHint],
-    ['Notes', country.notes && <span className="pre-wrap">{country.notes}</span>],
+    ['Requests', source.endpoint && <span className="mono">{source.endpoint}</span>, true],
+    ['How it is fetched', source.method, true],
+    ['What is saved', source.output, true],
+    ['Notes', country.notes && <span className="pre-wrap">{country.notes}</span>, true],
   ];
 
   return (
-    <Panel
-      i={i}
-      className="source-panel"
-      icon={<CodeAvatar code={country.code} />}
-      title="Source"
-      desc={country.kind === 'manual' ? 'Files are downloaded by hand and uploaded' : 'Extracted by the extraction service'}
-      actions={
-        country.kind === 'manual' ? (
-          <Badge tone="blue">Download-only</Badge>
+    <section className="source-info reveal" style={revealStyle(i)} aria-label="Source">
+      <div className="section-head">
+        <h2 className="section-title">Source</h2>
+        {country.kind === 'manual' ? (
+          <Badge>Download-only</Badge>
         ) : status?.ok ? (
-          <Badge tone="green">Ready</Badge>
+          <Badge tone="green" dot>Ready to extract</Badge>
         ) : status?.reason === 'offline' ? (
-          <Badge>Service offline</Badge>
+          <Badge tone="red" dot>Service offline</Badge>
         ) : (
           <span title={status?.reason}>
-            <Badge tone="amber">Unavailable</Badge>
+            <Badge tone="amber" dot>Unavailable</Badge>
           </span>
-        )
-      }
-    >
+        )}
+      </div>
+
       {source.url && (
         <a className="source-link" href={source.url} target="_blank" rel="noreferrer">
-          <span>
-            <span className="cell-strong">{source.name || hostOf(source.url)}</span>
-            <span className="cell-sub mono source-url">{source.url}</span>
-          </span>
-          <Icon.ArrowRight size={14} />
+          <Icon.Globe size={15} />
+          <span className="source-name">{source.name || hostOf(source.url)}</span>
+          <span className="source-url mono">{source.url}</span>
+          <Icon.External size={13} />
         </a>
       )}
 
-      <dl className="source-facts">
-        <div className="fact-pair">
-          <div>
-            <dt>Publication lag</dt>
-            <dd>
-              {plural(country.lagMonths, 'month')}
-              {country.publishDay > 1 ? `, around day ${country.publishDay}` : ''}
-            </dd>
-          </div>
-          <div>
-            <dt>Latest expected</dt>
-            <dd>{latestPublished(country) ? fmtMonth(latestPublished(country)) : '—'}</dd>
-          </div>
-        </div>
-        {country.kind === 'api' && (
-          <div className="fact-pair">
-            <div>
-              <dt>Trade flows</dt>
-              <dd>{fmtFlows(country.tradeTypes)}</dd>
-            </div>
-            <div>
-              <dt>Saved HS codes</dt>
-              <dd>
-                {country.hsCodeCount.toLocaleString()}
-                {country.testHsCodeCount ? <span className="faint"> · {country.testHsCodeCount.toLocaleString()} test</span> : null}
-              </dd>
-            </div>
-          </div>
-        )}
+      <dl className="facts">
         {facts
           .filter(([, value]) => value)
-          .map(([label, value]) => (
-            <div key={label}>
+          .map(([label, value, wide]) => (
+            <div key={label} className={wide ? 'wide' : ''}>
               <dt>{label}</dt>
               <dd>{value}</dd>
             </div>
           ))}
       </dl>
-    </Panel>
+    </section>
   );
 }
 
@@ -147,9 +128,10 @@ export function NextStepCard({ country, onEditMonths }: { country: Country; onEd
         {next.kind === 'running' && <RunProgress run={next.run} />}
         {next.kind === 'review' && (
           <span className="next-step-help">
-            Extracted months stay <b>extracting</b> until someone checks the files. Marking them completed moves the dashboard on.{' '}
+            Extracted months stay <b>extracting</b> until someone checks the files. Mark them completed once the files look right, or remove them to
+            set them back to not done.{' '}
             <button type="button" className="text-btn" onClick={onEditMonths}>
-              Mark only some
+              Change only some
             </button>
           </span>
         )}
@@ -157,6 +139,7 @@ export function NextStepCard({ country, onEditMonths }: { country: Country; onEd
       <div className="next-step-actions">
         {next.kind === 'review' && (
           <>
+            <RemoveMonthsButton country={country} periods={next.periods} size="md" />
             <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
               <Icon.Folder size={14} /> Check files
             </Link>
@@ -166,33 +149,6 @@ export function NextStepCard({ country, onEditMonths }: { country: Country; onEd
         {next.kind !== 'review' && <NextAction country={country} status={status} size="md" />}
       </div>
     </section>
-  );
-}
-
-/** This year and last at a glance, with a link to the full list */
-export function MonthsGlance({ country, i = 4 }: { country: Country; i?: number }) {
-  return (
-    <Panel
-      i={i}
-      title="Months done"
-      desc={
-        country.latestCompleted ? (
-          <>
-            Latest completed <b className="text-strong">{fmtMonth(country.latestCompleted)}</b> · {plural(country.completedMonths.length, 'month')} in total
-          </>
-        ) : (
-          'No months completed yet'
-        )
-      }
-    >
-      <MonthGrid country={country} years={yearsFor(country).slice(0, 2)} compact />
-      <div className="months-card-foot">
-        <MonthLegend />
-        <Link href={`/countries/${country.code}`} className="btn btn-secondary btn-sm">
-          All months <Icon.ChevronRight size={14} />
-        </Link>
-      </div>
-    </Panel>
   );
 }
 
@@ -277,7 +233,7 @@ export function UploadPanel({ country, i = 2 }: { country: Country; i?: number }
       actions={
         country.source.url && (
           <a className="btn btn-secondary btn-sm" href={country.source.url} target="_blank" rel="noreferrer">
-            1. Open {hostOf(country.source.url)} <Icon.ArrowRight size={13} />
+            1. Open {hostOf(country.source.url)} <Icon.External size={13} />
           </a>
         )
       }

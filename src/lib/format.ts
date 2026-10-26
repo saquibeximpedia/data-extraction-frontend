@@ -1,5 +1,6 @@
-/** plural(3, 'file') -> "3 files" */
-export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+/** plural(3, 'file') -> "3 files", plural(2, 'country') -> "2 countries" */
+export const plural = (n: number, word: string) =>
+  `${n.toLocaleString()} ${n === 1 ? word : /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`}`;
 
 /** "IMPORT" -> "Import", "COMPLETED" -> "Completed" */
 export const capitalize = (word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
@@ -35,7 +36,8 @@ export function fmtRelative(value?: string | null): string {
 export function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
+  return `${(bytes / 1073741824).toFixed(2)} GB`;
 }
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });

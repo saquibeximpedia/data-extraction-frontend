@@ -36,11 +36,22 @@ export async function requireUser(req: Request): Promise<SessionUser> {
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.user;
 
   const { data, error } = await admin().auth.getUser(token);
-  if (error || !data.user) throw new HttpError(401, 'Your session has expired. Sign in again.');
+  if (error || !data.user) throw new HttpError(401, signInFailure(error?.message ?? ''));
   const user: SessionUser = { id: data.user.id, email: data.user.email ?? '', role: roleOf(data.user) };
   if (verified.size > 500) verified.clear();
   verified.set(token, { user, at: Date.now() });
   return user;
+}
+
+/**
+ * Why Supabase rejected a token, in words a person can act on. Only a really expired session says
+ * "expired": a wrong key or project on the server would otherwise look like one and loop forever.
+ */
+function signInFailure(reason: string): string {
+  if (/expired/i.test(reason)) return 'Your session has expired. Sign in again.';
+  if (/does not exist|not found/i.test(reason)) return 'This account no longer exists. Ask an admin for a new one.';
+  console.error(`Sign-in check failed: ${reason || 'no user returned'}`);
+  return `The server could not verify your sign-in (${reason || 'no user returned'}). Its Supabase settings probably don't match this app's: SUPABASE_SERVICE_ROLE_KEY must come from the same project as NEXT_PUBLIC_SUPABASE_URL.`;
 }
 
 export async function requireAdmin(req: Request): Promise<SessionUser> {

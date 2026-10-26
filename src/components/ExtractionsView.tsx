@@ -9,10 +9,10 @@ import type { Run, RunLog } from '@/lib/types';
 import { fmtDate, fmtDay, fmtMonth, fmtMs, fmtRange, fmtRelative, fmtTime, plural } from '@/lib/format';
 import { useChangedKeys } from '@/lib/hooks';
 import { describeRun, fmtRecords, isRunning, needsAttention, requestCount, runNotes, runPeriods, timeTaken } from '@/lib/runs';
-import { extractHref, MarkCompletedButton } from './CountryAction';
+import { extractHref, MarkCompletedButton, RemoveMonthsButton } from './CountryAction';
 import { Elapsed, formatLogMessage, RunBar, RunFiles, RunOutcome, RunStatusBadge, StopButton, useProgress } from './RunParts';
 import { ServiceNotice } from './ServiceNotice';
-import { Badge, Button, CodeAvatar, Empty, Icon, LoadingPanel, Panel, ProgressBar, revealStyle, Skeleton, StatTiles, StatusDot, useToast } from './ui';
+import { Badge, Button, Empty, FilterTabs, Icon, LoadingPanel, Panel, ProgressBar, revealStyle, Skeleton, StatTiles, useToast } from './ui';
 
 function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
   const router = useRouter();
@@ -30,7 +30,9 @@ function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
         </Link>
         <div className="cell-sub row-meta">
           <RunStatusBadge run={run} />
-          {notes.length > 0 && <Badge tone={notes.some((n) => n.tone === 'red') ? 'red' : 'amber'}>{plural(notes.length, 'flag')}</Badge>}
+          {notes.length > 0 && <Badge tone={notes.some((n) => n.tone === 'red') ? 'red' : 'amber'} dot>
+            {plural(notes.length, 'flag')}
+          </Badge>}
           {run.params?.startedBy && <span>by {run.params.startedBy}</span>}
         </div>
       </td>
@@ -63,14 +65,21 @@ function LiveSection() {
     <section className="live-section reveal" style={revealStyle(1)} aria-label="Running now">
       <div className="section-head">
         <h2 className="section-title">
-          <StatusDot tone="green" live /> Running now
+          Running now
+          {live.length ? (
+            <Badge tone="green" live>
+              {live.length} running
+            </Badge>
+          ) : (
+            <Badge dot>Idle</Badge>
+          )}
         </h2>
         <Link href="/extract" className="btn btn-primary btn-sm">
-          <Icon.Play size={13} /> New extraction
+          <Icon.Play size={12} /> New extraction
         </Link>
       </div>
       {live.length === 0 ? (
-        <p className="live-empty glass">Nothing is running on the extraction service.</p>
+        <p className="live-empty">Nothing is running on the extraction service. New extractions show up here with live progress.</p>
       ) : (
         <div className="live-cards">
           {live.map((r) => (
@@ -85,7 +94,7 @@ function LiveSection() {
 function LiveCard({ run }: { run: Run }) {
   const p = useProgress(run);
   return (
-    <Link href={`/extractions/${run.id}`} className="live-card glass">
+    <Link href={`/extractions/${run.id}`} className="live-card">
       <div className="live-card-head">
         <span className="cell-strong">{describeRun(run)}</span>
         <StopButton run={run} />
@@ -115,10 +124,6 @@ export function ExtractionsList() {
   const shown = filter === 'all' ? list : list.filter(needsAttention);
   const changed = useChangedKeys(list.map((r) => ({ key: r.id, signature: r.status })));
   const attention = list.filter(needsAttention).length;
-  const filters: [Filter, string][] = [
-    ['all', 'All'],
-    ['attention', `Needs attention${attention ? ` (${attention})` : ''}`],
-  ];
 
   return (
     <>
@@ -131,13 +136,15 @@ export function ExtractionsList() {
         desc={runs ? `${list.length} most recent` : 'Loading…'}
         actions={
           <div className="toolbar">
-            <div className="chip-group" role="group" aria-label="Filter extractions">
-              {filters.map(([value, label]) => (
-                <button key={value} type="button" className={`chip-btn ${filter === value ? 'active' : ''}`} aria-pressed={filter === value} onClick={() => setFilter(value)}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            <FilterTabs<Filter>
+              label="Filter extractions"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: 'all', label: 'All', count: list.length },
+                { value: 'attention', label: 'Needs attention', count: attention },
+              ]}
+            />
             <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing.runs} onClick={refreshRuns}>
               Refresh
             </Button>
@@ -208,7 +215,7 @@ function AfterRun({ run }: { run: Run }) {
         <div key={plan.countryCode} className={`next-step ${toCheck.length ? 'next-review' : failed ? 'next-due' : 'next-done'}`}>
           <div className="next-step-text">
             <span className="next-step-eyebrow">
-              <CodeAvatar code={country.code} /> {country.name}
+              {country.name} <span className="mono">{country.code}</span>
             </span>
             <span className="next-step-title">
               {toCheck.length
@@ -229,6 +236,7 @@ function AfterRun({ run }: { run: Run }) {
             )}
             {toCheck.length > 0 && (
               <>
+                <RemoveMonthsButton country={country} periods={toCheck} size="md" />
                 <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
                   <Icon.Folder size={14} /> Files
                 </Link>
@@ -430,9 +438,9 @@ function LiveRun({ run }: { run: Run }) {
         <div className="run-drawer-stats-panel detail-stats">
           <div className="stats-panel-head">
             <div className="stats-panel-title">
-              <span className="live-status-badge">
-                <span className="live-pulse-dot" /> Live metrics
-              </span>
+              <Badge tone="green" live>
+                Live metrics
+              </Badge>
             </div>
             <span className="stats-panel-pct">{p.pct}%</span>
           </div>
@@ -473,9 +481,9 @@ function LiveRun({ run }: { run: Run }) {
               Speed: <b>{p.perMin < 60 ? `${p.perMin.toFixed(1)} requests/min` : `${(p.perMin / 60).toFixed(1)} requests/sec`}</b>
             </div>
           )}
-          <RunFiles files={s.files} />
         </div>
       </div>
+      <RunFiles files={s.files} />
     </div>
   );
 }

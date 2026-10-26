@@ -7,7 +7,7 @@ import { PageHead } from '@/components/PageHead';
 export default function FilesPage() {
   return (
     <>
-      <PageHead title="Files" sub="Extracted CSVs and uploaded files, by country and month. Select several to download them as one zip." />
+      <PageHead title="Files" sub="Extracted files by country and month. Months over the upload limit are stored in parts." />
       <Suspense>
         <FilesView />
       </Suspense>

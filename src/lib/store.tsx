@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError, checkService, extractor, saveServiceUrl, serviceUrl, setUnauthorizedHandler } from './api';
+import { api, ApiError, checkService, errorText, extractor, saveServiceUrl, serviceUrl, setUnauthorizedHandler } from './api';
 import { supabase } from './supabase';
 import type { Country, ExportFile, ExtractorInfo, Me, Run, ServiceHealth } from './types';
 
@@ -27,6 +27,8 @@ interface AppState {
 
   countries: Country[] | null;
   files: ExportFile[] | null;
+  /** Why the files could not be listed (e.g. a wrong bucket on the server) */
+  filesError: string;
   /** History from the database, with live stats from the service for running ones */
   runs: Run[] | null;
 
@@ -74,6 +76,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [history, setHistory] = useState<Run[] | null>(null);
   const [liveRuns, setLiveRuns] = useState<Run[]>([]);
   const [files, setFiles] = useState<ExportFile[] | null>(null);
+  const [filesError, setFilesError] = useState('');
   const [refreshing, setRefreshing] = useState({ runs: false, files: false });
   const [service, setService] = useState<ServiceState>({ url: '', status: 'checking', health: null, error: '', checkedAt: null });
   const [extractors, setExtractors] = useState<ExtractorInfo[] | null>(null);
@@ -139,7 +142,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ),
     [withSpinner]
   );
-  const refreshFiles = useCallback(() => withSpinner('files', () => api.files().then(setFiles).catch(() => {})), [withSpinner]);
+  const refreshFiles = useCallback(
+    () =>
+      withSpinner('files', () =>
+        api
+          .files()
+          .then((list) => {
+            setFiles(list);
+            setFilesError('');
+          })
+          .catch((err) => {
+            setFiles((current) => current ?? []);
+            setFilesError(errorText(err));
+          })
+      ),
+    [withSpinner]
+  );
   const refreshActivity = useCallback(() => {
     refreshRuns();
     refreshFiles();
@@ -231,6 +249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signOut,
       countries,
       files,
+      filesError,
       runs,
       service,
       serviceLive: live,
@@ -244,7 +263,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       putCountry,
       refreshActivity,
     }),
-    [auth, me, authError, signOut, countries, files, runs, service, live, extractors, checkNow, setServiceUrl, refreshing, refreshRuns, refreshFiles, refreshCountries, putCountry, refreshActivity]
+    [auth, me, authError, signOut, countries, files, filesError, runs, service, live, extractors, checkNow, setServiceUrl, refreshing, refreshRuns, refreshFiles, refreshCountries, putCountry, refreshActivity]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

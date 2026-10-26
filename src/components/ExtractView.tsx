@@ -9,10 +9,11 @@ import type { Country, ExtractorInfo, TradeFlow } from '@/lib/types';
 import { fmtFlows, fmtMonth, fmtRange, plural } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { useExtractability } from '@/lib/hooks';
-import { MonthsGlance, SourceCard } from './CountryPanels';
+import { SourceInfo } from './CountryPanels';
+import { MonthLegend, RecentMonths } from './MonthGrid';
 import { PageHead } from './PageHead';
 import { ServiceDown, SetupNeeded, useSetupProblem } from './ServiceNotice';
-import { Button, CodeAvatar, Empty, Field, Icon, MonthRangePicker, Panel, Segmented, Select, Skeleton, type MonthPreset } from './ui';
+import { Button, Empty, Field, Icon, MonthRangePicker, Panel, Segmented, Select, Skeleton, type MonthPreset } from './ui';
 
 type Flow = 'ALL' | TradeFlow;
 type Mode = 'complete' | 'test';
@@ -116,11 +117,9 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   const listMonths = (periods: string[]) => (periods.length > 3 ? plural(periods.length, 'month') : periods.map(fmtMonth).join(', '));
 
   return (
-    <Panel i={1} title="New extraction" desc={`Runs on the extraction service at ${service.url}. You can follow it live, then check and mark the months completed.`}>
+    <Panel i={1} className="extract-card">
       <div className="extract-form">
-        <Field label="Country" htmlFor="country">
-          {countrySelect}
-        </Field>
+        <FormHead countrySelect={countrySelect} />
 
         <div className="field">
           <div className="field-head">
@@ -268,17 +267,58 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   );
 }
 
+/** The form's title, with the country picker beside it */
+function FormHead({ countrySelect }: { countrySelect: React.ReactNode }) {
+  return (
+    <div className="extract-head">
+      <div>
+        <h2 className="panel-title">New extraction</h2>
+        <p className="panel-desc">Runs on the extraction service; follow it live under Extractions.</p>
+      </div>
+      <div className="extract-country">
+        <label className="sr-only" htmlFor="country">
+          Country
+        </label>
+        {countrySelect}
+      </div>
+    </div>
+  );
+}
+
+/** The chosen country's last 12 months, beside the form */
+function CountryMonths({ country }: { country: Country }) {
+  return (
+    <Panel
+      i={2}
+      title="Last 12 months"
+      desc={country.recentPeriods.length ? `${country.name} · ${fmtRange(country.recentPeriods.slice(-12))}` : country.name}
+      actions={
+        <Link href={`/countries/${country.code}`} className="link link-quiet">
+          All months <Icon.ChevronRight size={12} />
+        </Link>
+      }
+    >
+      <RecentMonths country={country} />
+      <div className="months-foot">
+        <MonthLegend />
+        <span className="foot-summary">{country.latestCompleted ? `Latest completed ${fmtMonth(country.latestCompleted)}` : 'Nothing completed yet'}</span>
+      </div>
+    </Panel>
+  );
+}
+
 function FormSkeleton() {
   return (
-    <div className="overview-grid">
-      <section className="panel glass skeleton-rows">
-        <Skeleton height={24} width={160} />
-        <Skeleton height={42} radius={999} />
-        <Skeleton height={42} radius={999} />
-        <Skeleton height={80} radius={16} />
+    <div className="extract-layout">
+      <section className="panel skeleton-rows">
+        <Skeleton height={40} radius={12} />
+        <Skeleton height={40} radius={12} />
+        <Skeleton height={40} radius={12} />
+        <Skeleton height={60} radius={12} />
       </section>
-      <section className="panel glass">
-        <Skeleton height={200} />
+      <section className="panel skeleton-rows">
+        <Skeleton height={20} width={140} />
+        <Skeleton height={150} radius={12} />
       </section>
     </div>
   );
@@ -324,16 +364,12 @@ function ExtractBody() {
       options={extractable.map((c) => {
         const status = extractability(c.code);
         const due = dueMonths(c);
-        const e = extractors.find((x) => x.code === c.code);
         return {
           value: c.code,
           label: c.name,
           meta: c.code,
           disabled: !status.ok,
-          hint: status.ok
-            ? `${due.length ? `${fmtRange(due)} due` : c.latestCompleted ? `Up to date (${fmtMonth(c.latestCompleted)})` : 'Nothing done yet'} · ${(e?.hsCodeCount ?? 0).toLocaleString()} saved codes`
-            : status.reason,
-          prefix: <CodeAvatar code={c.code} muted={!status.ok} />,
+          hint: status.ok ? (due.length ? `${fmtRange(due)} due` : c.latestCompleted ? `Up to date (${fmtMonth(c.latestCompleted)})` : 'Nothing done yet') : status.reason,
         };
       })}
     />
@@ -341,23 +377,23 @@ function ExtractBody() {
 
   const status = extractability(country.code);
   return (
-    <div className="overview-grid">
-      {info && status.ok ? (
-        <ExtractForm country={country} info={info} countrySelect={countrySelect} />
-      ) : (
-        <Panel i={1}>
-          <Field label="Country" htmlFor="country">
-            {countrySelect}
-          </Field>
-          <div className="note note-warn">
-            <Icon.Alert /> <span>{status.reason}</span>
-          </div>
-        </Panel>
-      )}
-      <div className="side-stack">
-        <MonthsGlance country={country} i={2} />
-        <SourceCard country={country} i={3} />
+    <div className="extract-layout">
+      <div className="extract-main">
+        {info && status.ok ? (
+          <ExtractForm country={country} info={info} countrySelect={countrySelect} />
+        ) : (
+          <Panel i={1} className="extract-card">
+            <FormHead countrySelect={countrySelect} />
+            <div className="note note-warn">
+              <Icon.Alert /> <span>{status.reason}</span>
+            </div>
+          </Panel>
+        )}
+        <SourceInfo country={country} i={3} />
       </div>
+      <aside className="extract-aside">
+        <CountryMonths country={country} />
+      </aside>
     </div>
   );
 }
@@ -365,7 +401,7 @@ function ExtractBody() {
 export function ExtractView() {
   return (
     <>
-      <PageHead title="Extract" sub="Pick a country, the months and the trade flow, then run. Each month's file is replaced." />
+      <PageHead title="Extract" sub="Pick a country and its months, then run. Each month's file is replaced; follow it live under Extractions." />
       <ExtractBody />
     </>
   );

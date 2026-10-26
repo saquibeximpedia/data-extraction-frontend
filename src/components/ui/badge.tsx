@@ -1,9 +1,13 @@
 export type Tone = 'neutral' | 'blue' | 'green' | 'amber' | 'red';
 
-export function Badge({ tone = 'neutral', live, children }: { tone?: Tone; live?: boolean; children: React.ReactNode }) {
+/**
+ * A short status or label in a soft pill. `dot` leads with a dot in the tone's colour (for
+ * statuses); `live` makes that dot pulse (something is happening right now).
+ */
+export function Badge({ tone = 'neutral', dot, live, title, children }: { tone?: Tone; dot?: boolean; live?: boolean; title?: string; children: React.ReactNode }) {
   return (
-    <span className={`badge badge-${tone}`}>
-      {live && <span className="dot dot-live" />}
+    <span className={`badge badge-${tone}`} title={title}>
+      {(dot || live) && <span className={`badge-dot ${live ? 'dot-live' : ''}`} aria-hidden="true" />}
       {children}
     </span>
   );

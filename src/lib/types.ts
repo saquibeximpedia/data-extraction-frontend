@@ -163,6 +163,8 @@ export interface ExportFile {
   period: string | null;
   /** 'extracted' files are written by runs; 'uploaded' ones were added by users */
   origin: 'extracted' | 'uploaded';
+  /** A month too big for one upload is stored in parts (_part1, _part2…); null for a whole month */
+  part: number | null;
 }
 
 /** Response of POST {service}/api/extractions: runs start in the background */

@@ -10,6 +10,7 @@
     "create-admin": "node --env-file=.env.local scripts/create-admin.mjs"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@supabase/supabase-js": "^2.118.0",
     "jszip": "^3.10.2",
     "next": "16.4.2",

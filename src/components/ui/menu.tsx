@@ -13,6 +13,8 @@ export interface MenuItem {
   /** Draws a divider above this item */
   separator?: boolean;
   danger?: boolean;
+  /** Marks the current item (e.g. the page you are on) */
+  active?: boolean;
 }
 
 /**
@@ -59,12 +61,12 @@ export function Menu({
                 <span className="menu-label">{item.label}</span>
               </>
             );
-            const className = `menu-item ${item.danger ? 'menu-item-danger' : ''}`;
+            const className = `menu-item ${item.danger ? 'menu-item-danger' : ''} ${item.active ? 'menu-item-active' : ''}`;
             return (
               <div key={i}>
                 {item.separator && <div className="menu-sep" />}
                 {item.href ? (
-                  <Link role="menuitem" className={className} href={item.href} onClick={() => close(false)}>
+                  <Link role="menuitem" className={className} href={item.href} aria-current={item.active ? 'page' : undefined} onClick={() => close(false)}>
                     {content}
                   </Link>
                 ) : (

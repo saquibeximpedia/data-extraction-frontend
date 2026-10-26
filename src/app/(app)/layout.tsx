@@ -7,12 +7,12 @@ import { capitalize } from '@/lib/format';
 import { describeRun } from '@/lib/runs';
 import type { Run } from '@/lib/types';
 import { AppHeader } from '@/components/AppHeader';
-import { ListPageSkeleton, OverviewSkeleton } from '@/components/PageSkeletons';
+import { FormSkeleton, ListPageSkeleton, OverviewSkeleton } from '@/components/PageSkeletons';
 import { useToast } from '@/components/ui';
 
 function skeletonFor(href: string) {
-  if (href === '/') return <ListPageSkeleton titleWidth={140} />;
-  if (href === '/extract') return <OverviewSkeleton />;
+  if (href === '/') return <OverviewSkeleton />;
+  if (href === '/extract') return <FormSkeleton />;
   return <ListPageSkeleton titleWidth={130} />;
 }
 

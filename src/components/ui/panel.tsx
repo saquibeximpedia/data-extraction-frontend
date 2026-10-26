@@ -6,7 +6,7 @@ import { Skeleton } from './spinner';
 export const revealStyle = (i?: number) => (i === undefined ? undefined : ({ '--i': i } as React.CSSProperties));
 
 /**
- * A glass card with an optional head: title, description, an icon before them and actions on
+ * A card with an optional head: title, description, an icon before them and actions on
  * the right. `flush` drops the padding for edge-to-edge tables.
  */
 export function Panel({
@@ -31,7 +31,7 @@ export function Panel({
   children?: React.ReactNode;
 }) {
   return (
-    <section id={id} className={`panel glass reveal ${flush ? 'panel-flush' : ''} ${className}`} style={revealStyle(i)}>
+    <section id={id} className={`panel reveal ${flush ? 'panel-flush' : ''} ${className}`} style={revealStyle(i)}>
       {(title || actions) && (
         <div className={`panel-head ${flush ? 'padded' : ''}`}>
           <div className="panel-head-text">
@@ -52,7 +52,7 @@ export function Panel({
 /** A panel-sized placeholder while its data loads */
 export function LoadingPanel({ height = 240 }: { height?: number }) {
   return (
-    <section className="panel glass">
+    <section className="panel">
       <Skeleton height={height} />
     </section>
   );
@@ -72,7 +72,7 @@ export interface StatTile {
   href?: string;
 }
 
-/** A row of headline numbers. `inset` draws them as wells inside a panel instead of glass cards. */
+/** A row of headline numbers. `inset` draws them as wells inside a panel instead of separate cards. */
 export function StatTiles({ tiles, i, inset }: { tiles: StatTile[]; i?: number; inset?: boolean }) {
   return (
     <section className={`stat-row ${inset ? 'inset' : 'reveal'}`} style={inset ? undefined : revealStyle(i)}>
@@ -84,7 +84,7 @@ export function StatTiles({ tiles, i, inset }: { tiles: StatTile[]; i?: number; 
             {(t.sub !== undefined || !inset) && <span className="stat-sub">{t.sub || ' '}</span>}
           </>
         );
-        const className = `stat-tile ${inset ? 'stat-inset' : 'glass'} ${t.tone ? `stat-${t.tone}` : ''} ${t.href ? 'stat-link' : ''}`;
+        const className = `stat-tile ${inset ? 'stat-inset' : ''} ${t.tone ? `stat-${t.tone}` : ''} ${t.href ? 'stat-link' : ''}`;
         return t.href ? (
           <Link key={t.label} href={t.href} className={className}>
             {body}

@@ -3,16 +3,16 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/lib/store';
-import { useCountry, useCountryStatus } from '@/lib/hooks';
+import { useCountry, useCountryStatus, useExtractability } from '@/lib/hooks';
 import type { Country } from '@/lib/types';
 import { fmtRelative } from '@/lib/format';
 import { yearsFor } from '@/lib/months';
-import { NextAction } from './CountryAction';
-import { CountryStats, NextStepCard, RecentRuns, SourceCard, UploadPanel } from './CountryPanels';
+import { extractHref } from './CountryAction';
+import { CountryStats, NextStepCard, RecentRuns, SourceInfo, UploadPanel } from './CountryPanels';
 import { MonthGrid, MonthLegend } from './MonthGrid';
-import { MonthPainter } from './MonthPainter';
+import { MonthEditor } from './MonthEditor';
 import { PageHead } from './PageHead';
-import { Badge, Button, CodeAvatar, Empty, Icon, LoadingPanel, Panel } from './ui';
+import { Badge, Button, CodeTag, Empty, Icon, LoadingPanel, Panel } from './ui';
 
 /** Loads a country from the list and renders `children` with it, or a loading / not-found state */
 export function WithCountry({ code, children }: { code: string; children: (country: Country) => React.ReactNode }) {
@@ -33,9 +33,10 @@ export function WithCountry({ code, children }: { code: string; children: (count
   return <>{children(country)}</>;
 }
 
-/** A country: its next step, numbers, every year's months (paintable in edit mode), source and recent extractions */
+/** A country: its next step, numbers, every year's months (editable), source and recent extractions */
 export function CountryView({ country }: { country: Country }) {
   const { isAdmin } = useApp();
+  const extractability = useExtractability();
   const status = useCountryStatus(country);
   const [extraYears, setExtraYears] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -51,25 +52,32 @@ export function CountryView({ country }: { country: Country }) {
       <PageHead
         back={{ href: '/', label: 'Dashboard' }}
         title={
-          <span className="title-with-avatar">
-            <CodeAvatar code={country.code} muted={!country.enabled} />
+          <span className="title-with-code">
             {country.name}
+            <CodeTag code={country.code} />
           </span>
         }
         sub={
           <>
-            {country.kind === 'manual' && <Badge tone="blue">Download-only</Badge>} {country.code}
-            {country.lastUpdatedAt ? ` · updated ${fmtRelative(country.lastUpdatedAt)}` : ''}
+            {country.kind === 'manual' && <Badge>Download-only</Badge>}{' '}
+            {country.lastUpdatedAt ? `Updated ${fmtRelative(country.lastUpdatedAt)}` : 'Not updated yet'}
           </>
         }
         actions={
           <>
             {isAdmin && (
-              <Link href={`/admin/countries?code=${country.code}`} className="btn btn-ghost btn-md">
+              <Link href={`/countries/${country.code}/edit`} className="btn btn-ghost btn-md">
                 <Icon.Pencil size={14} /> Edit details
               </Link>
             )}
-            {status.next.kind === 'done' && <NextAction country={country} status={status} size="md" />}
+            <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
+              <Icon.Folder size={14} /> Files
+            </Link>
+            {country.kind === 'api' && extractability(country.code).ok && (
+              <Link href={extractHref(country.code)} className="btn btn-secondary btn-md">
+                <Icon.Play size={13} /> Extract
+              </Link>
+            )}
           </>
         }
       />
@@ -77,46 +85,40 @@ export function CountryView({ country }: { country: Country }) {
       <CountryStats country={country} status={status} />
       <NextStepCard country={country} onEditMonths={editMonths} />
 
-      <div className="overview-grid">
-        <div className="side-stack">
-          <Panel
-            id="months"
-            i={3}
-            className={editing ? 'panel-editing' : ''}
-            title="Months"
-            desc={editing ? 'Paint months with a status, then save.' : 'Months turn extracting when an extraction starts; mark them completed once the files are checked.'}
-            actions={
-              editing ? (
-                <Badge tone="blue">Editing</Badge>
-              ) : (
-                <Button size="sm" variant="secondary" icon={<Icon.Pencil size={13} />} onClick={() => setEditing(true)}>
-                  Edit months
-                </Button>
-              )
-            }
-          >
-            {editing ? (
-              <MonthPainter key={country.code} country={country} years={years} onDone={() => setEditing(false)} />
-            ) : (
-              <>
-                <MonthGrid country={country} years={years} />
-                <div className="months-card-foot">
-                  <MonthLegend />
-                </div>
-              </>
-            )}
-            <button type="button" className="text-btn earlier-years" onClick={() => setExtraYears((n) => n + 1)}>
-              <Icon.Plus size={12} /> Show {years[years.length - 1] - 1}
-            </button>
-          </Panel>
-
-          {country.kind === 'manual' && <UploadPanel country={country} i={4} />}
+      <Panel
+        id="months"
+        i={3}
+        className={editing ? 'panel-editing' : ''}
+        title="Months"
+        desc={editing ? undefined : 'Months turn extracting when an extraction starts; mark them completed once the files are checked.'}
+        actions={
+          editing ? (
+            <Badge tone="amber" dot>Editing</Badge>
+          ) : (
+            <Button size="sm" variant="secondary" icon={<Icon.Pencil size={13} />} onClick={() => setEditing(true)}>
+              Edit months
+            </Button>
+          )
+        }
+      >
+        {editing ? (
+          <MonthEditor key={country.code} country={country} years={years} onDone={() => setEditing(false)} />
+        ) : (
+          <MonthGrid country={country} years={years} />
+        )}
+        <div className="months-foot">
+          {!editing && <MonthLegend />}
+          <button type="button" className="text-btn" onClick={() => setExtraYears((n) => n + 1)}>
+            <Icon.Plus size={12} /> Show {years[years.length - 1] - 1}
+          </button>
         </div>
+      </Panel>
 
-        <div className="side-stack">
-          <SourceCard country={country} i={4} />
-          {country.kind === 'api' && <RecentRuns country={country} i={5} />}
-        </div>
+      {country.kind === 'manual' && <UploadPanel country={country} i={4} />}
+
+      <div className="country-bottom">
+        <SourceInfo country={country} i={4} />
+        {country.kind === 'api' && <RecentRuns country={country} i={5} />}
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase, supabaseConfigured } from '@/lib/supabase';
 import { Icon, Spinner, ThemeToggle } from './ui';
 
@@ -10,7 +10,17 @@ export function Login({ notice }: { notice?: string }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [shakeKey, setShakeKey] = useState(0);
+  const [setupProblems, setSetupProblems] = useState<string[]>([]);
+
+  // A deployment whose server settings don't match the browser's would reject every sign-in: say why up front
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    const ref = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/^https:\/\/([a-z0-9]+)\./i)?.[1] ?? '';
+    fetch(`/api/setup?ref=${ref}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((r: { problems?: string[]; error?: string }) => setSetupProblems(r.problems ?? (r.error ? [r.error] : [])))
+      .catch(() => {});
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -18,82 +28,58 @@ export function Login({ notice }: { notice?: string }) {
     setBusy(true);
     setError('');
     const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (signInError) {
-      setError(/invalid login/i.test(signInError.message) ? 'That email and password don’t match an account.' : signInError.message);
-      setShakeKey((k) => k + 1);
-    }
+    if (signInError) setError(/invalid login/i.test(signInError.message) ? 'That email and password don’t match an account.' : signInError.message);
     // On success the app switches to the dashboard once the API accepts the session
     setBusy(false);
   }
 
+  const message = !supabaseConfigured
+    ? 'Supabase is not configured: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.'
+    : error || notice;
+
   return (
-    <div className="access">
-      <div className="access-grid" aria-hidden="true" />
-      <div className="access-corner">
+    <div className="signin">
+      <div className="signin-corner">
         <ThemeToggle />
       </div>
 
-      <main className="access-body">
-        <span className="access-eyebrow glass">
-          <span className="dot dot-green" /> Internal tool · accounts are created by an admin
-        </span>
-
-        <h1 className="access-title">
-          Customs trade data,
-          <br />
-          <span className="access-title-muted">by country and month.</span>
-        </h1>
-
-        <p className="access-lead">
-          Track which months are complete for each country, run extractions from government sources, and download the files.
-        </p>
-
-        <form key={shakeKey} onSubmit={submit} className={`signin-form glass ${shakeKey ? 'shake' : ''} ${error ? 'has-error' : ''}`}>
+      <main className="signin-body">
+        <form onSubmit={submit} className="signin-card">
+          <div>
+            <h1 className="signin-title">Sign in</h1>
+            <p className="signin-sub">Use the account an admin created for you.</p>
+          </div>
           <label className="signin-field">
             <span>Email</span>
-            <input
-              className="control"
-              type="email"
-              autoComplete="email"
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+            <input className="control" type="email" autoComplete="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
           </label>
           <label className="signin-field">
             <span>Password</span>
-            <input
-              className="control"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <input className="control" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
+          {message && (
+            <p className={`signin-msg ${error || !supabaseConfigured ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>
+              {message}
+            </p>
+          )}
           <button className="btn btn-primary btn-md signin-go" type="submit" disabled={busy || !email.trim() || !password || !supabaseConfigured}>
-            {busy ? <Spinner /> : <Icon.ArrowRight />} Sign in
+            {busy && <Spinner />} Sign in
           </button>
         </form>
 
-        <p className={`access-msg ${error || !supabaseConfigured ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>
-          {!supabaseConfigured
-            ? 'Supabase is not configured: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.'
-            : error || notice || ' '}
-        </p>
-
-        <ul className="access-facts">
-          <li>
-            <Icon.Calendar size={15} /> Completed months per country
-          </li>
-          <li>
-            <Icon.Play size={15} /> Extractions run on the server
-          </li>
-          <li>
-            <Icon.File size={15} /> One file per country-month
-          </li>
-        </ul>
+        {setupProblems.length > 0 && (
+          <div className="note note-error setup-problems" role="alert">
+            <Icon.Alert />
+            <span>
+              <b>This deployment can't sign anyone in yet.</b> Fix these settings on the server, then redeploy:
+              <ul>
+                {setupProblems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </span>
+          </div>
+        )}
       </main>
     </div>
   );
