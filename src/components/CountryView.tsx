@@ -73,8 +73,8 @@ export function CountryView({ country }: { country: Country }) {
             <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
               <Icon.Folder size={14} /> Files
             </Link>
-            {country.kind === 'api' && extractability(country.code).ok && (
-              <Link href={extractHref(country.code)} className="btn btn-secondary btn-md">
+            {country.kind === 'api' && (
+              <Link href={extractHref(country.code, status.due)} className={`btn btn-md ${extractability(country.code).ok ? 'btn-primary' : 'btn-secondary'}`}>
                 <Icon.Play size={13} /> Extract
               </Link>
             )}

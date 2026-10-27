@@ -8,32 +8,35 @@ import { fmtFlows, fmtMonth, hostOf, plural } from '@/lib/format';
 import { useCountryStatuses, useExtractability } from '@/lib/hooks';
 import { latestPublished } from '@/lib/months';
 import type { CountryStatus } from '@/lib/status';
-import { StepLabel } from './CountryAction';
+import { extractHref, StepLabel } from './CountryAction';
 import { MonthStrip } from './MonthGrid';
 import { PageHead } from './PageHead';
 import { Badge, CodeTag, Empty, Icon, Panel, revealStyle, SearchInput, Skeleton } from './ui';
 
-/** One country as a card: the whole card opens it; admins also get Edit */
+/** One country as a card: the name opens it; Extract (or Upload) and admins' Edit sit in the footer */
 function CountryCard({ country, status, i }: { country: Country; status: CountryStatus; i: number }) {
   const { isAdmin } = useApp();
   const extractability = useExtractability();
-  const ready = country.kind === 'api' && extractability(country.code).ok;
+  const isApi = country.kind === 'api';
+  const ready = isApi && extractability(country.code).ok;
   const latest = latestPublished(country);
+  const facts: [string, string][] = [
+    ['Latest completed', country.latestCompleted ? fmtMonth(country.latestCompleted) : '—'],
+    ['Latest expected', latest ? fmtMonth(latest) : '—'],
+    country.startPeriod ? ['Data from', fmtMonth(country.startPeriod)] : ['Publication lag', plural(country.lagMonths, 'month')],
+    isApi ? ['Trade flows', fmtFlows(country.tradeTypes)] : ['Files', 'Downloaded by hand'],
+  ];
 
   return (
     <article className="country-card reveal" style={revealStyle(Math.min(i, 8))}>
       <div className="country-card-head">
         <span className="country-name">
-          <Link href={`/countries/${country.code}`} className="country-card-link">
+          <Link href={} className="country-card-link">
             {country.name}
           </Link>
           <CodeTag code={country.code} />
         </span>
-        {isAdmin && (
-          <Link href={`/countries/${country.code}/edit`} className="btn btn-ghost btn-sm country-card-edit">
-            <Icon.Pencil size={14} /> Edit
-          </Link>
-        )}
+        {!isApi ? <Badge>Download-only</Badge> : ready ? <Badge tone="green" dot>Ready</Badge> : <Badge tone="amber" dot>Unavailable</Badge>}
       </div>
 
       <div className="country-card-status">
@@ -42,29 +45,35 @@ function CountryCard({ country, status, i }: { country: Country; status: Country
       </div>
 
       <dl className="country-card-facts">
-        <div>
-          <dt>Latest completed</dt>
-          <dd>{country.latestCompleted ? fmtMonth(country.latestCompleted) : '—'}</dd>
-        </div>
-        <div>
-          <dt>Latest expected</dt>
-          <dd>{latest ? fmtMonth(latest) : '—'}</dd>
-        </div>
-        <div>
-          <dt>Publication lag</dt>
-          <dd>{plural(country.lagMonths, 'month')}</dd>
-        </div>
-        <div>
-          <dt>{country.kind === 'api' ? 'Trade flows' : 'Files'}</dt>
-          <dd>{country.kind === 'api' ? fmtFlows(country.tradeTypes) : 'Downloaded by hand'}</dd>
-        </div>
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
       </dl>
 
       <div className="country-card-foot">
-        <span className="country-card-source">
-          <Icon.Globe size={14} /> {country.source.url ? country.source.name || hostOf(country.source.url) : 'No source link'}
+        <span className="country-card-source" title={country.source.name || country.source.url}>
+          <Icon.Globe size={14} />
+          <span>{country.source.url ? country.source.name || hostOf(country.source.url) : 'No source link'}</span>
         </span>
-        {country.kind === 'manual' ? <Badge>Download-only</Badge> : ready ? <Badge tone="green" dot>Ready</Badge> : <Badge dot>Extractor unavailable</Badge>}
+        <div className="country-card-actions">
+          {isAdmin && (
+            <Link href={} className="btn btn-ghost btn-sm btn-icon" aria-label={Error 0x80070006: The handle is invalid.} title="Edit details">
+              <Icon.Pencil size={14} />
+            </Link>
+          )}
+          {isApi ? (
+            <Link href={extractHref(country.code, status.due)} className={}>
+              <Icon.Play size={12} /> Extract
+            </Link>
+          ) : (
+            <Link href={} className="btn btn-sm btn-secondary">
+              <Icon.Upload size={13} /> Upload
+            </Link>
+          )}
+        </div>
       </div>
     </article>
   );

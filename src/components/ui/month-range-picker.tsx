@@ -16,6 +16,7 @@ export interface MonthPreset {
  * Pick a "YYYY-MM" range on a year grid: first click sets the start, second click the end.
  * With `single`, one click picks one month (start = end).
  * `marked` months get a dot, explained by `markedLabel` (e.g. months already extracted).
+ * Months before `min` can't be picked.
  */
 export function MonthRangePicker({
   id,
@@ -26,6 +27,7 @@ export function MonthRangePicker({
   marked = [],
   markedLabel = 'Marked',
   single = false,
+  min,
 }: {
   id?: string;
   start: string;
@@ -35,6 +37,7 @@ export function MonthRangePicker({
   marked?: string[];
   markedLabel?: string;
   single?: boolean;
+  min?: string | null;
 }) {
   const { open, setOpen, close, rootRef, triggerRef } = usePopover();
   const [year, setYear] = useState(() => Number((end || start || '').slice(0, 4)) || new Date().getFullYear());
@@ -108,6 +111,7 @@ export function MonthRangePicker({
               const m = MONTH_LABELS[i];
               const inRange = lo && hi && p >= lo && p <= hi;
               const isEdge = p === lo || p === hi;
+              const disabled = Boolean(min && p < min);
               return (
                 <button
                   key={p}
@@ -115,6 +119,7 @@ export function MonthRangePicker({
                   className={`mp-cell ${inRange ? 'in-range' : ''} ${isEdge ? 'edge' : ''} ${p === today ? 'today' : ''}`}
                   onMouseEnter={() => setHover(p)}
                   onClick={() => choose(p)}
+                  disabled={disabled}
                   aria-pressed={!!inRange}
                 >
                   {m}
@@ -126,7 +131,7 @@ export function MonthRangePicker({
 
           {presets.length > 0 && (
             <div className="mp-presets">
-              {presets.map((pr) => (
+              {presets.filter((pr) => !min || pr.end >= min).map((pr) => (
                 <button
                   key={pr.label}
                   type="button"

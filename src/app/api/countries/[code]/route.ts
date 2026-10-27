@@ -3,7 +3,7 @@ import { jsonBody, parse, requireAdmin, route } from '@/server/http';
 
 type Ctx = { params: Promise<{ code: string }> };
 
-/** PATCH /api/countries/:code (admin) → edits name, source links and text, notes, lag, publish day */
+/** PATCH /api/countries/:code (admin) → edits name, source links and text, notes, lag, publish day, start month */
 export const PATCH = route<Ctx>(async (req, { params }) => {
   const user = await requireAdmin(req);
   const patch = parse(countryPatchSchema, await jsonBody(req));

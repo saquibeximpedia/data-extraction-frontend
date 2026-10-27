@@ -63,12 +63,13 @@ export const latestPublished = (country: Country) => country.recentPeriods[count
 /**
  * Published months still to extract (or upload), oldest first: those after the latest completed
  * month up to the latest published, skipping months already extracting. With nothing completed
- * yet, only the latest published month. At most `max` months.
+ * yet, only the latest published month. Never before the country's start month; at most `max` months.
  */
 export function dueMonths(country: Country, max = 24): string[] {
   const latest = latestPublished(country);
   if (!latest) return [];
-  const from = country.latestCompleted ? addMonths(country.latestCompleted, 1) : latest;
+  let from = country.latestCompleted ? addMonths(country.latestCompleted, 1) : latest;
+  if (country.startPeriod && from < country.startPeriod) from = country.startPeriod;
   if (from > latest) return [];
   const capped = monthsBetween(from, latest) >= max ? addMonths(latest, -(max - 1)) : from;
   return periodRange(capped, latest).filter((p) => !country.extractingMonths.includes(p));

@@ -21,10 +21,12 @@ type When = 'month' | 'range';
 
 const splitCodes = (text: string) => [...new Set(text.split(/[\s,;]+/).filter(Boolean))];
 
-/** Presets from the latest month the source should have published; "catch up" covers every due month */
+/** Presets from the latest month the source should have published; "catch up" covers every due month. None start before the start month. */
 function presetsFor(country: Country, range: boolean): MonthPreset[] {
   const latest = latestPublished(country);
   if (!latest) return [];
+  const from = country.startPeriod;
+  const clamp = (p: MonthPreset): MonthPreset => (from && p.start < from && p.end >= from ? { ...p, start: from } : p);
   if (!range) {
     return [
       { label: 'Latest published', start: latest, end: latest },
@@ -33,7 +35,7 @@ function presetsFor(country: Country, range: boolean): MonthPreset[] {
   }
   const due = dueMonths(country);
   const year = Number(latest.slice(0, 4));
-  return [
+  const presets: MonthPreset[] = [
     ...(due.length > 1 ? [{ label: `Catch up (${plural(due.length, 'month')})`, start: due[0], end: due[due.length - 1] }] : []),
     { label: 'Last 3 months', start: addMonths(latest, -2), end: latest },
     { label: 'Last 6 months', start: addMonths(latest, -5), end: latest },
@@ -41,13 +43,18 @@ function presetsFor(country: Country, range: boolean): MonthPreset[] {
     { label: `This year (${year})`, start: `${year}-01`, end: latest },
     { label: `Last year (${year - 1})`, start: `${year - 1}-01`, end: `${year - 1}-12` },
   ];
+  return presets.map(clamp);
 }
 
 /** Months to start with: the ones in the link (from the dashboard or "Run again"), else every due month, else the latest */
 function initialMonths(country: Country, params: URLSearchParams): [string, string] {
   const start = params.get('start') ?? '';
   const end = params.get('end') ?? start;
-  if (isPeriod(start) && isPeriod(end)) return [start, end].sort() as [string, string];
+  if (isPeriod(start) && isPeriod(end)) {
+    const [lo, hi] = [start, end].sort();
+    const from = country.startPeriod;
+    return from && lo < from && hi >= from ? [from, hi] : [lo, hi];
+  }
   const due = dueMonths(country);
   const latest = latestPublished(country);
   return due.length ? [due[0], due[due.length - 1]] : [latest, latest];
@@ -93,6 +100,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   const flows = flow === 'ALL' ? info.tradeTypes : [flow];
   const latest = latestPublished(country);
   const unpublished = latest ? months.filter((p) => p > latest) : [];
+  const beforeStart = country.startPeriod ? months.filter((p) => p < country.startPeriod!) : [];
 
   async function run() {
     setBusy(true);
@@ -147,6 +155,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
                 marked={country.completedMonths}
                 markedLabel="Already completed"
                 presets={presetsFor(country, when === 'range')}
+                min={country.startPeriod}
               />
             </div>
           </div>
@@ -154,6 +163,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
             <p className="field-help">
               {when === 'range' ? `${plural(months.length, 'month')}. ` : ''}
               {latest ? `${fmtMonth(latest)} is the latest the source should have out.` : ''}
+              {country.startPeriod ? ` Data starts in ${fmtMonth(country.startPeriod)}.` : ''}
             </p>
           )}
         </div>
@@ -237,6 +247,14 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           </span>
         </div>
       )}
+      {!error && beforeStart.length > 0 && (
+        <div className="note note-error" role="alert">
+          <Icon.Alert />
+          <span>
+            {country.name} has data from {fmtMonth(country.startPeriod!)} onwards; {listMonths(beforeStart)} can&apos;t be extracted. Pick later months.
+          </span>
+        </div>
+      )}
       {!error && unpublished.length > 0 && (
         <div className="note note-warn">
           <Icon.Alert />
@@ -259,7 +277,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
             <dd>{useCodes ? plural(codes.length, 'custom code') : `${savedCount.toLocaleString()} ${effectiveMode}`}</dd>
           </div>
         </dl>
-        <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
+        <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
           Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
         </Button>
       </div>

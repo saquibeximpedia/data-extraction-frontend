@@ -22,6 +22,7 @@ export function SourceInfo({ country, i = 3 }: { country: Country; i?: number })
   const facts: [string, React.ReactNode, boolean?][] = [
     ['Publication lag', `${plural(country.lagMonths, 'month')}${country.publishDay > 1 ? `, around day ${country.publishDay}` : ''}`],
     ['Latest expected', latest ? fmtMonth(latest) : '—'],
+    ...(country.startPeriod ? ([['Data available from', fmtMonth(country.startPeriod)]] as [string, React.ReactNode][]) : []),
     ...(country.kind === 'api'
       ? ([
           ['Trade flows', fmtFlows(country.tradeTypes)],

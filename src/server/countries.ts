@@ -31,6 +31,8 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
   const completed = months.filter((m) => m.status === 'completed').map((m) => m.period);
   const lagMonths = edit.lagMonths ?? base?.lagMonths ?? 1;
   const publishDay = edit.publishDay ?? base?.publishDay ?? 1;
+  const defaultStartPeriod = base?.startPeriod ?? null;
+  const startPeriod = edit.startPeriod || defaultStartPeriod;
   return {
     code: row.code,
     name: edit.name || base?.name || row.code,
@@ -48,11 +50,13 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
     lagMonths,
     defaultLagMonths: base?.lagMonths ?? lagMonths,
     publishDay,
+    startPeriod,
+    defaultStartPeriod,
     tradeTypes: base?.tradeTypes ?? [],
     hsCodeHint: base?.hsCodeHint ?? '',
     hsCodeCount: base?.hsCodeCount ?? 0,
     testHsCodeCount: base?.testHsCodeCount ?? 0,
-    recentPeriods: recentPublishedPeriods(lagMonths, publishDay, 12),
+    recentPeriods: recentPublishedPeriods(lagMonths, publishDay, 12).filter((p) => !startPeriod || p >= startPeriod),
     completedMonths: completed,
     extractingMonths: months.filter((m) => m.status === 'extracting').map((m) => m.period),
     latestCompleted: completed[completed.length - 1] ?? null,
@@ -93,6 +97,7 @@ export const countryPatchSchema = z.object({
   notes: optionalText(2000),
   lagMonths: z.number().int().min(0).max(24).optional(),
   publishDay: z.number().int().min(1).max(31).optional(),
+  startPeriod: z.union([z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use YYYY-MM'), z.literal('')]).optional(),
 });
 
 export const newCountrySchema = countryPatchSchema.extend({

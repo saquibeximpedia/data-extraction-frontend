@@ -37,6 +37,8 @@ export interface ExtractorInfo {
   source: CountrySource;
   lagMonths: number;
   publishDay: number;
+  /** Earliest month with data (older services don't say) */
+  startPeriod?: string | null;
   tradeTypes: TradeFlow[];
   hsCodeHint: string;
   hsCodeCount: number;
@@ -59,11 +61,15 @@ export interface Country {
   lagMonths: number;
   defaultLagMonths: number;
   publishDay: number;
+  /** Earliest month the source has data for ("YYYY-MM"); null when there is no limit */
+  startPeriod: string | null;
+  /** The extractor's own start month, used when admins leave it empty */
+  defaultStartPeriod: string | null;
   tradeTypes: TradeFlow[];
   hsCodeHint: string;
   hsCodeCount: number; // size of the service's saved list (codes are never sent)
   testHsCodeCount: number;
-  recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out
+  recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out (none before startPeriod)
   completedMonths: string[]; // marked completed by users, oldest first
   extractingMonths: string[]; // an extraction was started; not marked completed yet
   latestCompleted: string | null;
@@ -86,6 +92,8 @@ export interface CountryPatch {
   notes?: string;
   lagMonths?: number;
   publishDay?: number;
+  /** "YYYY-MM"; empty uses the extractor's default */
+  startPeriod?: string;
 }
 
 /** One month's new status; null clears it (back to not done) */

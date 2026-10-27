@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { AdminUser, Country, CountryPatch, Role } from '@/lib/types';
-import { fmtDate, fmtRelative, plural } from '@/lib/format';
+import { fmtDate, fmtMonth, fmtRelative, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
 import { Badge, Button, ConfirmModal, Empty, Field, Icon, LoadingPanel, Menu, Panel, Segmented, Skeleton, useToast, type MenuItem } from './ui';
 
@@ -199,9 +199,21 @@ const toForm = (c: Country): Required<CountryPatch> => ({
   notes: c.notes,
   lagMonths: c.lagMonths,
   publishDay: c.publishDay,
+  startPeriod: c.startPeriod ?? '',
 });
 
-function CountryFields({ form, set, kind }: { form: CountryPatch; set: (patch: CountryPatch) => void; kind: 'api' | 'manual' }) {
+function CountryFields({
+  form,
+  set,
+  kind,
+  defaultStart = null,
+}: {
+  form: CountryPatch;
+  set: (patch: CountryPatch) => void;
+  kind: 'api' | 'manual';
+  /** The extractor's own start month */
+  defaultStart?: string | null;
+}) {
   const text = (key: keyof CountryPatch, label: string, opts: { area?: boolean; placeholder?: string; type?: string } = {}) => {
     const props = { id: `f-${key}`, value: String(form[key] ?? ''), placeholder: opts.placeholder, onChange: (e: { target: { value: string } }) => set({ [key]: e.target.value }) };
     return (
@@ -231,6 +243,12 @@ function CountryFields({ form, set, kind }: { form: CountryPatch; set: (patch: C
       {kind === 'api' && text('endpoint', 'Requests (endpoint)')}
       {num('lagMonths', 'Publication lag (months)', 0, 24)}
       {num('publishDay', 'Usually published on day', 1, 31)}
+      <Field label="Data available from" htmlFor="f-startPeriod">
+        <input id="f-startPeriod" type="month" className="control" value={form.startPeriod ?? ''} onChange={(e) => set({ startPeriod: e.target.value })} />
+        <p className="field-help">
+          Earlier months can&apos;t be extracted. {defaultStart ? `Empty uses the default, ${fmtMonth(defaultStart)}.` : 'Empty: no limit.'}
+        </p>
+      </Field>
       <div className="span-2">{text('method', 'How it is fetched', { area: true })}</div>
       <div className="span-2">{text('output', 'What is saved', { area: true })}</div>
       <div className="span-2">{text('notes', 'Notes for users', { area: true, placeholder: 'e.g. Files are under Statistics > Monthly trade; pick HS 8-digit.' })}</div>
@@ -248,7 +266,7 @@ function EditCountry({ country }: { country: Country }) {
 
   return (
     <>
-      <CountryFields form={form} set={(patch) => setForm((f) => ({ ...f, ...patch }))} kind={country.kind} />
+      <CountryFields form={form} set={(patch) => setForm((f) => ({ ...f, ...patch }))} kind={country.kind} defaultStart={country.defaultStartPeriod} />
       <div className="panel-foot">
         {country.kind === 'manual' ? (
           <Button size="sm" variant="ghost" className="btn-danger-ghost" icon={<Icon.Trash size={13} />} onClick={() => setConfirmDelete(true)}>
