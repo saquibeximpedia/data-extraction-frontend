@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { api, errorText } from './api';
 import { fmtRange, plural } from './format';
@@ -141,4 +142,26 @@ export function useSetMonths() {
   );
 
   return { busy, setMonths };
+}
+
+/**
+ * Props that make a table row open `href` when clicked anywhere on it. Links, buttons and inputs
+ * inside the row keep their own destination; Ctrl / Cmd / middle click opens a new tab.
+ */
+export function useRowLink() {
+  const router = useRouter();
+  return useCallback(
+    (href: string) => ({
+      className: 'clickable',
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        if ((e.target as HTMLElement).closest('a, button, input, label')) return;
+        if (e.metaKey || e.ctrlKey) window.open(href, '_blank', 'noopener');
+        else router.push(href);
+      },
+      onAuxClick: (e: React.MouseEvent<HTMLElement>) => {
+        if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) window.open(href, '_blank', 'noopener');
+      },
+    }),
+    [router]
+  );
 }

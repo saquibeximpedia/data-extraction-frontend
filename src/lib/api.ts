@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { AdminUser, Country, CountryPatch, ExportFile, ExtractorInfo, Me, MonthChange, PublicShare, Role, Run, RunLog, RunResponse, ServiceHealth, Share } from './types';
+import type { AdminUser, AppSettings, Country, CountryPatch, ExportFile, ExtractorInfo, Me, MonthChange, PublicShare, Role, Run, RunLog, RunOptions, RunResponse, ServiceHealth, Share } from './types';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: any) {
@@ -68,7 +68,7 @@ export const api = {
   createCountry: (body: CountryPatch & { code: string; name: string; sourceUrl: string }) => request<Country>('/api/countries', json('POST', body)),
   deleteCountry: (code: string) => request<{ deleted: string }>(`/api/countries/${code}`, { method: 'DELETE' }),
   users: () => request<{ users: AdminUser[] }>('/api/admin/users').then((r) => r.users),
-  createUser: (email: string, password: string, role: Role) => request<AdminUser>('/api/admin/users', json('POST', { email, password, role })),
+  createUser: (username: string, password: string, role: Role) => request<AdminUser>('/api/admin/users', json('POST', { username, password, role })),
   updateUser: (id: string, patch: { role?: Role; password?: string }) => request<AdminUser>(`/api/admin/users/${id}`, json('PATCH', patch)),
   deleteUser: (id: string) => request<{ deleted: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
 
@@ -93,9 +93,12 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 
+  /** The server downloads the month's file from the country's direct file link and stores it */
+  fetchFromSource: (country: string, period: string) => request<{ path: string; url: string; sizeBytes: number }>(`/api/countries/${country}/fetch`, json('POST', { period })),
+
   shares: () => request<{ shares: Share[] }>('/api/shares').then((r) => r.shares),
   /** A link anyone can open to download the files; expiresInDays null means it never expires */
-  createShare: (body: { paths: string[]; title?: string; password?: string; expiresInDays: number | null }) => request<Share>('/api/shares', json('POST', body)),
+  createShare: (body: { paths: string[]; title?: string; password?: string; expiresInDays: number | null }) => request<Share & { reused: boolean }>('/api/shares', json('POST', body)),
   deleteShare: (id: string) => request<{ deleted: string }>(`/api/shares/${id}`, { method: 'DELETE' }),
 
   /** Stores a file downloaded from a source website under a country and month (uploaded straight to Storage) */
@@ -200,7 +203,16 @@ export const extractor = {
   stopRun: (id: string) => service<{ success: boolean }>(`/api/runs/${id}/stop`, { method: 'POST' }),
   /** Only a running extraction has logs; the service drops them when it ends */
   runLogs: (id: string) => service<{ logs: RunLog[] }>(`/api/runs/${id}/logs`).then((r) => r.logs),
+  /** The extraction settings in force, and their .env defaults */
+  settings: () => service<SettingsResponse>('/api/settings'),
+  /** Admins only; applies from the next request on */
+  saveSettings: (patch: Partial<AppSettings>) => service<SettingsResponse>('/api/settings', json('PUT', patch)),
 };
+
+export interface SettingsResponse {
+  settings: AppSettings;
+  defaults: AppSettings;
+}
 
 export interface ExtractBody {
   countryCode: string;
@@ -209,4 +221,5 @@ export interface ExtractBody {
   hsCodes?: string;
   tradeType: string;
   mode: 'complete' | 'test';
+  options?: RunOptions;
 }

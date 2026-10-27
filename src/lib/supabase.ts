@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * Browser Supabase client: signs users in with email and password and keeps their session.
+ * Browser Supabase client: keeps the session (sign-in goes through /api/auth/sign-in, by username).
  * Uses the public anon key only; accounts are created by admins through the API.
  */
 export const supabase = createClient(

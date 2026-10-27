@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 import { supabase, supabaseConfigured } from '@/lib/supabase';
 import { Icon, Spinner, ThemeToggle } from './ui';
 
-/** Sign-in screen: email and password of an account an admin created */
+/** Sign-in screen: username and password of an account an admin created */
 export function Login({ notice }: { notice?: string }) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -24,11 +24,21 @@ export function Login({ notice }: { notice?: string }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password || busy) return;
+    if (!username.trim() || !password || busy) return;
     setBusy(true);
     setError('');
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (signInError) setError(/invalid login/i.test(signInError.message) ? 'That email and password don’t match an account.' : signInError.message);
+    try {
+      // The server finds the account by username and signs in; supabase-js then keeps the session
+      const res = await fetch('/api/auth/sign-in', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) setError(body.error || `Sign-in failed (HTTP ${res.status})`);
+      else {
+        const { error: sessionError } = await supabase.auth.setSession(body);
+        if (sessionError) setError(sessionError.message);
+      }
+    } catch {
+      setError('The server did not respond.');
+    }
     // On success the app switches to the dashboard once the API accepts the session
     setBusy(false);
   }
@@ -50,8 +60,8 @@ export function Login({ notice }: { notice?: string }) {
             <p className="signin-sub">Use the account an admin created for you.</p>
           </div>
           <label className="signin-field">
-            <span>Email</span>
-            <input className="control" type="email" autoComplete="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <span>Username</span>
+            <input className="control" autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus value={username} onChange={(e) => setUsername(e.target.value)} required />
           </label>
           <label className="signin-field">
             <span>Password</span>
@@ -62,7 +72,7 @@ export function Login({ notice }: { notice?: string }) {
               {message}
             </p>
           )}
-          <button className="btn btn-primary btn-md signin-go" type="submit" disabled={busy || !email.trim() || !password || !supabaseConfigured}>
+          <button className="btn btn-primary btn-md signin-go" type="submit" disabled={busy || !username.trim() || !password || !supabaseConfigured}>
             {busy && <Spinner />} Sign in
           </button>
         </form>

@@ -1,11 +1,17 @@
 import type { User } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { AdminUser } from '@/lib/types';
-import { HttpError } from './http';
+import { normalizeUsername, USERNAME_RE, usernameOf } from '@/lib/username';
+import { conflict, HttpError } from './http';
 import { admin, roleOf } from './supabase';
 
+const username = z
+  .string()
+  .transform(normalizeUsername)
+  .pipe(z.string().regex(USERNAME_RE, 'Use 3–32 letters, digits, dots, dashes or underscores, starting with a letter or digit'));
+
 export const createUserSchema = z.object({
-  email: z.email('Enter a valid email'),
+  username,
   password: z.string().min(8, 'Use at least 8 characters'),
   role: z.enum(['admin', 'user']).default('user'),
 });
@@ -17,7 +23,7 @@ export const updateUserSchema = z.object({
 
 export const describeUser = (u: User): AdminUser => ({
   id: u.id,
-  email: u.email ?? '',
+  username: usernameOf(u),
   role: roleOf(u),
   createdAt: u.created_at,
   lastSignInAt: u.last_sign_in_at ?? null,
@@ -36,4 +42,18 @@ export async function allUsers(): Promise<User[]> {
     users.push(...data.users);
     if (data.users.length < 200) return users;
   }
+}
+
+/**
+ * The account with this username, or null. A username given in app_metadata wins over one taken
+ * from an email; two older accounts whose emails start the same way can't be told apart.
+ */
+export async function findByUsername(name: string): Promise<User | null> {
+  const wanted = normalizeUsername(name);
+  const users = await allUsers();
+  const given = users.find((u) => u.app_metadata?.username === wanted);
+  if (given) return given;
+  const derived = users.filter((u) => usernameOf(u) === wanted);
+  if (derived.length > 1) throw conflict(`More than one account answers to "${wanted}". Ask an admin to give each a username.`);
+  return derived[0] ?? null;
 }

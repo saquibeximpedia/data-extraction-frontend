@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import type { Tone } from './badge';
-import { Skeleton } from './spinner';
 
 /** Staggers a section's entrance animation (see .reveal) */
 export const revealStyle = (i?: number) => (i === undefined ? undefined : ({ '--i': i } as React.CSSProperties));
@@ -45,15 +44,6 @@ export function Panel({
         </div>
       )}
       {children}
-    </section>
-  );
-}
-
-/** A panel-sized placeholder while its data loads */
-export function LoadingPanel({ height = 240 }: { height?: number }) {
-  return (
-    <section className="panel">
-      <Skeleton height={height} />
     </section>
   );
 }

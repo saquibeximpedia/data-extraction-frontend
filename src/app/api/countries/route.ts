@@ -11,5 +11,5 @@ export const GET = route(async (req) => {
 export const POST = route(async (req) => {
   const user = await requireAdmin(req);
   const body = parse(newCountrySchema, await jsonBody(req));
-  return Response.json(await countries.createManual(body, user.email), { status: 201 });
+  return Response.json(await countries.createManual(body, user.username), { status: 201 });
 });

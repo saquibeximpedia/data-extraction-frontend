@@ -11,11 +11,12 @@ const uploadSchema = z.object({
 
 /**
  * POST /api/files/upload { country, period, name } → { path, token, bucket }: the browser then
- * uploads the file straight to Storage with that one-time token (large files never pass through here)
+ * uploads the file straight to Storage with that one-time token (large files never pass through
+ * here). Any country can take uploads, extracted ones included.
  */
 export const POST = route(async (req) => {
-  await requireUser(req);
+  const user = await requireUser(req);
   const body = parse(uploadSchema, await jsonBody(req));
   const country = await countries.get(body.country);
-  return Response.json(await files.uploadTarget(country.code, body.period, body.name), { status: 201 });
+  return Response.json(await files.uploadTarget(country.code, body.period, body.name, user.username), { status: 201 });
 });

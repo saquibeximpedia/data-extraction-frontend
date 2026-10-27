@@ -7,14 +7,8 @@ import { capitalize } from '@/lib/format';
 import { describeRun } from '@/lib/runs';
 import type { Run } from '@/lib/types';
 import { AppHeader } from '@/components/AppHeader';
-import { FormSkeleton, ListPageSkeleton, OverviewSkeleton } from '@/components/PageSkeletons';
+import { skeletonFor } from '@/components/PageSkeletons';
 import { useToast } from '@/components/ui';
-
-function skeletonFor(href: string) {
-  if (href === '/') return <OverviewSkeleton />;
-  if (href === '/extract') return <FormSkeleton />;
-  return <ListPageSkeleton titleWidth={130} />;
-}
 
 /** Says when an extraction ends, on whatever page you are, with a link to its results */
 function useRunEndedToasts() {

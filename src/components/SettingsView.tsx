@@ -1,151 +1,24 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { checkService, defaultServiceUrl, savedServiceUrl } from '@/lib/api';
+import Link from 'next/link';
+import { errorText, extractor, type SettingsResponse } from '@/lib/api';
 import { useApp } from '@/lib/store';
-import { fmtRelative } from '@/lib/format';
-import { Badge, Button, Field, Icon, Panel, StatusDot, useToast } from './ui';
+import { useAction } from '@/lib/hooks';
+import type { AppSettings } from '@/lib/types';
+import { Badge, Button, Field, NumberInput, Panel } from './ui';
 
-const PRESETS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
-
-/** Where this browser finds the extraction service; the default comes from NEXT_PUBLIC_EXTRACTION_SERVICE_URL */
+/** How extractions run (threads, retries, file size) beside the signed-in account. The service's address and status are on /service. */
 export function SettingsView() {
-  const { service, setServiceUrl, checkService: recheck, me, isAdmin } = useApp();
-  const toast = useToast();
-  const fallback = defaultServiceUrl();
-  const [saved, setSaved] = useState<string | null>(null);
-  const [url, setUrl] = useState('');
-  const [testing, setTesting] = useState(false);
-
-  // localStorage is only readable in the browser
-  useEffect(() => {
-    const value = savedServiceUrl();
-    setSaved(value);
-    setUrl(value ?? fallback);
-  }, [fallback]);
-
-  const clean = url.trim().replace(/\/+$/, '');
-  const valid = /^https?:\/\/[^\s/]+/i.test(clean);
-  const unchanged = clean === (saved ?? fallback);
-
-  /** Says in a toast whether a service answers at the URL in the field */
-  async function runTest() {
-    setTesting(true);
-    const result = await checkService(clean);
-    setTesting(false);
-    if (result.ok) {
-      const h = result.health;
-      toast('ok', 'The extraction service answers', `${h.environment ?? 'Unknown'} environment · ${h.countries?.length ?? 0} countries · ${h.running ?? 0} running`);
-    } else {
-      toast('err', 'No extraction service there', result.error);
-    }
-  }
-
-  function save() {
-    const value = clean === fallback ? null : clean;
-    setServiceUrl(value);
-    setSaved(value);
-    toast('ok', 'Extraction service URL saved', value ? `This browser now uses ${value}` : 'Back to the default');
-  }
-
-  function reset() {
-    setServiceUrl(null);
-    setSaved(null);
-    setUrl(fallback);
-    toast('ok', 'Back to the default', fallback);
-  }
-
-  const health = service.health;
-
+  const { me, isAdmin } = useApp();
   return (
     <div className="settings-grid">
-      <Panel i={1} title="Extraction service" desc="The Node backend that runs extractions. Your browser calls it directly, so one running on this computer works too.">
-
-        <div className={`service-status service-${service.status}`}>
-          <StatusDot tone={service.status === 'live' ? 'green' : service.status === 'offline' ? 'red' : undefined} live={service.status === 'live'} />
-          <div className="service-status-text">
-            <span className="cell-strong">{service.status === 'live' ? 'Live' : service.status === 'offline' ? 'Offline' : 'Checking…'}</span>
-            <span className="cell-sub mono">{service.url}</span>
-            {service.status === 'offline' && <span className="cell-sub">{service.error}</span>}
-          </div>
-          <Button size="sm" variant="ghost" icon={<Icon.Refresh size={13} />} onClick={() => recheck()}>
-            Check
-          </Button>
-        </div>
-
-        {service.status === 'live' && health && (
-          <dl className="service-facts">
-            <div>
-              <dt>Environment</dt>
-              <dd>{health.environment ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Running now</dt>
-              <dd>{health.running ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Countries</dt>
-              <dd>{health.countries?.length ? health.countries.join(', ') : 'None enabled'}</dd>
-            </div>
-            <div>
-              <dt>Up since</dt>
-              <dd>{health.startedAt ? fmtRelative(health.startedAt) : '—'}</dd>
-            </div>
-          </dl>
-        )}
-
-        <div className="settings-form">
-          <Field
-            label="Service URL"
-            htmlFor="service-url"
-            aside={saved ? <Badge tone="green" dot>Set on this browser</Badge> : <Badge>Default</Badge>}
-          >
-            <input
-              id="service-url"
-              className="control mono"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && valid && !unchanged && save()}
-              placeholder="http://localhost:3000"
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </Field>
-          <div className="chip-group">
-            {[...new Set([fallback, ...PRESETS])].map((p) => (
-              <button key={p} type="button" className={`chip-btn ${clean === p ? 'active' : ''}`} onClick={() => setUrl(p)}>
-                {p === fallback ? `Default · ${p}` : p}
-              </button>
-            ))}
-          </div>
-
-          <div className="panel-foot">
-            <span className="foot-summary">
-              Saved in this browser only. The default is <span className="mono">{fallback}</span>
-              {process.env.NEXT_PUBLIC_EXTRACTION_SERVICE_URL ? ' (NEXT_PUBLIC_EXTRACTION_SERVICE_URL)' : ''}.
-            </span>
-            <div className="inline-form">
-              {saved && (
-                <Button size="sm" variant="ghost" onClick={reset}>
-                  Use default
-                </Button>
-              )}
-              <Button size="sm" variant="secondary" icon={<Icon.Plug size={13} />} loading={testing} disabled={!valid} onClick={() => runTest()}>
-                Test
-              </Button>
-              <Button size="sm" variant="primary" disabled={!valid || unchanged} onClick={save}>
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Panel>
-
+      <ExtractionSettings />
       <Panel i={2} title="Account" desc="Accounts are created by an admin.">
         <dl className="service-facts single">
           <div>
             <dt>Signed in as</dt>
-            <dd>{me?.email}</dd>
+            <dd>{me?.username}</dd>
           </div>
           <div>
             <dt>Role</dt>
@@ -154,5 +27,108 @@ export function SettingsView() {
         </dl>
       </Panel>
     </div>
+  );
+}
+
+/** The settings on the page, shown in friendlier units (seconds for the retry delay) */
+const SETTING_FIELDS: { key: keyof AppSettings; label: string; help: string; unit?: string; min: number; max: number; scale?: number }[] = [
+  { key: 'maxConcurrentPerCountry', label: 'Parallel requests per country', help: 'Threads for one country. A country whose source sets its own limit keeps it.', unit: 'at once', min: 1, max: 20 },
+  { key: 'maxConcurrentExtractions', label: 'Parallel requests overall', help: 'Cap across every extraction running at the same time.', unit: 'at once', min: 1, max: 50 },
+  { key: 'retryMaxAttempts', label: 'Retries', help: 'For timeouts, rate limits and server errors.', unit: 'times', min: 0, max: 10 },
+  { key: 'retryDelayMs', label: 'First retry after', help: 'Doubles with each retry.', unit: 'sec', min: 1, max: 60, scale: 1000 },
+  { key: 'emptyStreakFlagAt', label: 'Flag after empty requests', help: 'Requests in a row with 0 records before a run is flagged.', unit: 'requests', min: 10, max: 100000 },
+  { key: 'maxUploadMb', label: 'Split files larger than', help: 'A bigger month is saved in parts. Keep it under your storage plan’s file limit.', unit: 'MB', min: 1, max: 500 },
+];
+
+const toForm = (s: AppSettings) => Object.fromEntries(SETTING_FIELDS.map((f) => [f.key, String(Math.round(s[f.key] / (f.scale ?? 1)))])) as Record<keyof AppSettings, string>;
+
+/**
+ * How extractions run on the service: threads, retries, flags and file size. Changes apply from
+ * the next request without a restart. Everyone sees them; admins change them.
+ */
+function ExtractionSettings() {
+  const { serviceLive, isAdmin } = useApp();
+  const [data, setData] = useState<SettingsResponse | null>(null);
+  const [form, setForm] = useState<Record<keyof AppSettings, string> | null>(null);
+  const [error, setError] = useState('');
+  const { busy, run } = useAction();
+
+  useEffect(() => {
+    if (!serviceLive) return;
+    extractor.settings().then(
+      (r) => {
+        setData(r);
+        setForm(toForm(r.settings));
+        setError('');
+      },
+      (err) => setError(errorText(err))
+    );
+  }, [serviceLive]);
+
+  const desc = 'How extractions run: threads, retries and file size. Changes apply to new requests straight away.';
+  if (!serviceLive || error || !data || !form) {
+    return (
+      <Panel i={1} title="Extraction settings" desc={desc}>
+        <p className="foot-summary">
+          {!serviceLive ? <>Available while the extraction service is live. <Link href="/service" className="link">Connection</Link></> : error ? `This service does not offer settings yet (${error}). Update and restart it.` : 'Loading…'}
+        </p>
+      </Panel>
+    );
+  }
+
+  const parsed = SETTING_FIELDS.map((f) => ({ f, n: Number(form[f.key]) }));
+  const invalid = parsed.some(({ f, n }) => form[f.key] === '' || n < f.min || n > f.max);
+  const changed = SETTING_FIELDS.filter((f) => form[f.key] !== toForm(data.settings)[f.key]);
+  const atDefaults = SETTING_FIELDS.every((f) => form[f.key] === toForm(data.defaults)[f.key]);
+
+  function save() {
+    const patch = Object.fromEntries(parsed.map(({ f, n }) => [f.key, n * (f.scale ?? 1)])) as Partial<AppSettings>;
+    run(() => extractor.saveSettings(patch), 'Extraction settings saved', (r) => {
+      setData(r);
+      setForm(toForm(r.settings));
+    }, 'Could not save the settings');
+  }
+
+  return (
+    <Panel i={1} title="Extraction settings" desc={desc} actions={!isAdmin && <Badge>Admins can change these</Badge>}>
+      <div className="settings-fields">
+        {SETTING_FIELDS.map((f) => (
+          <Field key={f.key} label={f.label} htmlFor={`set-${f.key}`}>
+            <NumberInput
+              id={`set-${f.key}`}
+              value={form[f.key]}
+              onChange={(v) => setForm({ ...form, [f.key]: v })}
+              unit={f.unit}
+              min={f.min}
+              max={f.max}
+              disabled={!isAdmin}
+            />
+            <p className="field-help">
+              {f.help} {f.min}–{f.max.toLocaleString()}.
+            </p>
+          </Field>
+        ))}
+      </div>
+      {isAdmin && (
+        <div className="panel-foot">
+          <span className="foot-summary">{invalid ? 'Some values are out of range.' : changed.length ? `${changed.length} unsaved ${changed.length === 1 ? 'change' : 'changes'}` : 'Saved on the service, kept across restarts.'}</span>
+          <div className="inline-form">
+            {!atDefaults && (
+              <Button size="sm" variant="ghost" onClick={() => setForm(toForm(data.defaults))}>
+                Reset to .env defaults
+              </Button>
+            )}
+            {changed.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setForm(toForm(data.settings))}>
+                Discard
+              </Button>
+            )}
+            <Button size="sm" variant="primary" disabled={invalid || !changed.length} loading={busy} onClick={save}>
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }

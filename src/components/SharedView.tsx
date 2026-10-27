@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { ApiError, errorText, publicShare } from '@/lib/api';
 import { fmtDate, fmtSize, plural } from '@/lib/format';
 import type { PublicShare } from '@/lib/types';
-import { Button, FileIcon, Icon, Spinner, ThemeToggle } from './ui';
+import { FileRowsSkeleton } from './PageSkeletons';
+import { Button, FileIcon, Icon, Skeleton, Spinner, ThemeToggle } from './ui';
 
 /**
  * The page anyone with a share link sees (no sign-in): the password first if the link has one,
@@ -65,8 +66,13 @@ export function SharedView({ id }: { id: string }) {
     );
   } else if (!share) {
     card = (
-      <div className="signin-card" aria-busy="true">
-        <Spinner />
+      <div className="signin-card shared-card" aria-busy="true">
+        <div className="skeleton-head">
+          <Skeleton width={200} height={24} radius={6} />
+          <Skeleton width={260} height={13} />
+        </div>
+        <FileRowsSkeleton rows={3} />
+        <Skeleton height={40} radius={999} />
       </div>
     );
   } else if (share.locked) {

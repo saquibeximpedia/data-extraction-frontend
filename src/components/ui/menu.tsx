@@ -15,6 +15,8 @@ export interface MenuItem {
   danger?: boolean;
   /** Marks the current item (e.g. the page you are on) */
   active?: boolean;
+  /** Leaves the menu open after selecting (e.g. a toggle whose label changes) */
+  keepOpen?: boolean;
 }
 
 /**
@@ -64,7 +66,7 @@ export function Menu({
             const className = `menu-item ${item.danger ? 'menu-item-danger' : ''} ${item.active ? 'menu-item-active' : ''}`;
             return (
               <div key={i}>
-                {item.separator && <div className="menu-sep" />}
+                {item.separator && (i > 0 || !header) && <div className="menu-sep" />}
                 {item.href ? (
                   <Link role="menuitem" className={className} href={item.href} aria-current={item.active ? 'page' : undefined} onClick={() => close(false)}>
                     {content}
@@ -76,7 +78,7 @@ export function Menu({
                     className={className}
                     onClick={() => {
                       item.onSelect?.();
-                      close();
+                      if (!item.keepOpen) close();
                     }}
                   >
                     {content}

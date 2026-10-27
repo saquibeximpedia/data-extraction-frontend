@@ -51,7 +51,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast surface-pop ${t.leaving ? 'toast-leaving' : ''}`}>
+          <div key={t.id} className={`toast liquid ${t.leaving ? 'toast-leaving' : ''}`}>
             <span className={`toast-icon toast-${t.tone}`}>{t.tone === 'ok' ? <Icon.Check size={14} /> : <Icon.Alert size={14} />}</span>
             <span className="toast-text">
               <span className="toast-title">{t.title}</span>

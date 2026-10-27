@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { isRunning } from '@/lib/runs';
-import { Icon, Menu, StatusDot, ThemeToggle } from './ui';
+import { Icon, Menu, StatusDot, useTheme } from './ui';
 
 // `section` is the path prefix the tab stays lit for
 const DASHBOARD = { href: '/', section: '/', label: 'Dashboard' };
@@ -15,36 +15,43 @@ const EXTRACTIONS = { href: '/extractions', section: '/extractions', label: 'Ext
 const FILES = { href: '/files', section: '/files', label: 'Files' };
 const USERS = { href: '/users', section: '/users', label: 'Users' };
 
-const SERVICE_LABEL = { live: 'Extractor live', offline: 'Extractor offline', checking: 'Checking the extractor…' };
+const SERVICE_LABEL = { live: 'Live', offline: 'Offline', checking: 'Checking…' };
 
-/** Whether the extraction service is up, as a dot; opens Settings, where its URL is set */
-function ServiceDot({ onNavigate }: { onNavigate?: (href: string) => void }) {
+/** Whether the extraction service is live, beside the account button; opens its page, where its URL is set */
+function ServiceStatus() {
   const { service } = useApp();
-  const label =
-    service.status === 'offline' ? `${SERVICE_LABEL.offline} at ${service.url}: ${service.error} Click to change the URL.` : `${SERVICE_LABEL[service.status]} at ${service.url}`;
+  const tone = service.status === 'live' ? 'green' : service.status === 'offline' ? 'red' : undefined;
+  const title = service.status === 'offline' ? `Extractor offline at ${service.url}: change its URL` : `Extractor ${SERVICE_LABEL[service.status].toLowerCase()} at ${service.url}`;
   return (
-    <Link href="/settings" className={`icon-btn service-dot service-${service.status}`} aria-label={label} title={label} onClick={() => onNavigate?.('/settings')}>
-      <StatusDot tone={service.status === 'live' ? 'green' : service.status === 'offline' ? 'red' : undefined} live={service.status === 'offline'} />
+    <Link href="/service" className={`service-pill glass service-${service.status}`} title={title} aria-label={title}>
+      <StatusDot tone={tone} live={service.status === 'offline'} />
+      <span className="service-pill-label">{SERVICE_LABEL[service.status]}</span>
     </Link>
   );
 }
 
-/** The signed-in account, Settings and sign out */
+/** The account button; its menu holds the extraction service, Settings, the theme (switching it keeps the menu open) and sign out */
 function AccountMenu() {
   const { me, isAdmin, signOut } = useApp();
+  const { theme, toggle } = useTheme();
   return (
     <Menu
       label="Account"
       width={240}
-      trigger={{ className: 'avatar-btn', content: <span className="avatar">{(me?.email ?? '?').charAt(0).toUpperCase()}</span> }}
+      trigger={{
+        className: 'avatar-btn glass',
+        content: <span className="avatar">{(me?.username ?? '?').charAt(0).toUpperCase()}</span>,
+      }}
       header={
         <>
-          <span className="menu-header-name">{me?.email}</span>
+          <span className="menu-header-name">{me?.username}</span>
           <span className="menu-header-sub">{isAdmin ? 'Admin' : 'User'}</span>
         </>
       }
       items={[
+        { label: 'Extraction service', icon: <Icon.Plug size={15} />, href: '/service' },
         { label: 'Settings', icon: <Icon.Gear size={15} />, href: '/settings' },
+        { label: theme === 'dark' ? 'Light theme' : 'Dark theme', icon: theme === 'dark' ? <Icon.Sun size={15} /> : <Icon.Moon size={15} />, onSelect: toggle, keepOpen: true },
         { label: 'Sign out', icon: <Icon.Logout size={15} />, onSelect: signOut, separator: true },
       ]}
     />
@@ -128,12 +135,8 @@ export function AppHeader({ onNavigate }: { onNavigate?: (href: string) => void 
           ))}
         </nav>
 
-        <div className="topbar-side glass">
-          <ServiceDot onNavigate={onNavigate} />
-          <Link href="/settings" className="icon-btn" aria-label="Settings" title="Settings" onClick={go('/settings')}>
-            <Icon.Gear size={17} />
-          </Link>
-          <ThemeToggle />
+        <div className="topbar-side">
+          <ServiceStatus />
           <AccountMenu />
         </div>
       </div>

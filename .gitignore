@@ -3,3 +3,6 @@ node_modules
 next-env.d.ts
 *.tsbuildinfo
 .env*.local
+
+# Real settings never go to git (.env.example is the template)
+.env

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { usernameOf } from '@/lib/username';
 import { admin, roleOf, type Role } from './supabase';
 
 /** An error with an HTTP status; `route()` turns it into `{ error, ...details }` */
@@ -18,7 +19,8 @@ export const conflict = (message: string) => new HttpError(409, message);
 
 export interface SessionUser {
   id: string;
-  email: string;
+  /** What people sign in with; also what records say they did (marked months, uploads, links) */
+  username: string;
   role: Role;
 }
 
@@ -37,7 +39,7 @@ export async function requireUser(req: Request): Promise<SessionUser> {
 
   const { data, error } = await admin().auth.getUser(token);
   if (error || !data.user) throw new HttpError(401, signInFailure(error?.message ?? ''));
-  const user: SessionUser = { id: data.user.id, email: data.user.email ?? '', role: roleOf(data.user) };
+  const user: SessionUser = { id: data.user.id, username: usernameOf(data.user), role: roleOf(data.user) };
   if (verified.size > 500) verified.clear();
   verified.set(token, { user, at: Date.now() });
   return user;

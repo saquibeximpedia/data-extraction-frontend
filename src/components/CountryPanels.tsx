@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, errorText } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Country, Run } from '@/lib/types';
-import { fmtDate, fmtFlows, fmtMonth, fmtRange, fmtRelative, fmtSize, hostOf, plural } from '@/lib/format';
-import { useCountryStatus, useExtractability, useSetMonths } from '@/lib/hooks';
-import { latestPublished, monthState } from '@/lib/months';
+import { fmtDate, fmtFlows, fmtMonth, fmtRange, fmtRelative, hostOf, plural } from '@/lib/format';
+import { useCountryStatus, useExtractability } from '@/lib/hooks';
+import { latestPublished } from '@/lib/months';
 import type { CountryStatus } from '@/lib/status';
 import { describeStep, MarkCompletedButton, NextAction, RemoveMonthsButton } from './CountryAction';
 import { MiniRuns, RunProgress } from './RunParts';
-import { Badge, Button, Empty, Icon, MonthRangePicker, Panel, revealStyle, StatTiles, StatusDot, useToast } from './ui';
+import { Badge, Icon, Panel, revealStyle, StatTiles, StatusDot } from './ui';
+import { CountryUpload } from './Uploads';
 
 /** Where the country's data comes from and how it is fetched: plain text on the page, no card */
 export function SourceInfo({ country, i = 3 }: { country: Country; i?: number }) {
@@ -60,11 +61,8 @@ export function SourceInfo({ country, i = 3 }: { country: Country; i?: number })
       </div>
 
       {source.url && (
-        <a className="source-link" href={source.url} target="_blank" rel="noreferrer">
-          <Icon.Globe size={15} />
-          <span className="source-name">{source.name || hostOf(source.url)}</span>
-          <span className="source-url mono">{source.url}</span>
-          <Icon.External size={13} />
+        <a className="link source-link" href={source.url} target="_blank" rel="noreferrer" title={source.url}>
+          {source.name || hostOf(source.url)} <Icon.External size={13} />
         </a>
       )}
 
@@ -179,134 +177,20 @@ export function RecentRuns({ country, i = 4 }: { country: Country; i?: number })
   );
 }
 
-const ACCEPTED = /\.(xlsx|xls|csv|zip)$/i;
-
-/** Download-only countries: open the source, then upload its files under a month (and mark it completed) */
+/** Download-only countries: store the files from their source under a month (and mark it completed) */
 export function UploadPanel({ country, i = 2 }: { country: Country; i?: number }) {
-  const { files, refreshFiles } = useApp();
-  const toast = useToast();
-  const { due } = useCountryStatus(country);
-  const { setMonths } = useSetMonths();
-  const suggested = due[0] ?? latestPublished(country);
-  const [period, setPeriod] = useState(suggested);
-  const [picked, setPicked] = useState<File[]>([]);
-  const [markDone, setMarkDone] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [over, setOver] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => setPeriod(suggested), [country.code]);
-
-  const countryFiles = (files ?? []).filter((f) => f.countryCode === country.code).slice(0, 6);
-  const alreadyDone = monthState(country, period) === 'completed';
-
-  async function upload() {
-    setBusy(true);
-    let done = 0;
-    for (const file of picked) {
-      try {
-        await api.upload(country.code, period, file);
-        done++;
-      } catch (err) {
-        toast('err', `Could not upload ${file.name}`, errorText(err));
-      }
-    }
-    setPicked([]);
-    if (input.current) input.current.value = '';
-    refreshFiles();
-    if (done && markDone && !alreadyDone) await setMonths(country, [period], 'completed');
-    else if (done) toast('ok', 'Uploaded', `${plural(done, 'file')} for ${country.name} ${fmtMonth(period)}`);
-    setBusy(false);
-  }
-
-  const accept = (list: FileList | null) => {
-    const all = [...(list ?? [])];
-    const ok = all.filter((f) => ACCEPTED.test(f.name));
-    if (ok.length < all.length) toast('err', `${plural(all.length - ok.length, 'file')} skipped`, 'Upload .xlsx, .xls, .csv or .zip files');
-    setPicked(ok);
-  };
-
   return (
     <Panel
       id="upload"
       i={i}
       title="Upload files"
-      desc="This source publishes files, so nothing is extracted. Download them from the source and keep them here."
-      actions={
-        country.source.url && (
-          <a className="btn btn-secondary btn-sm" href={country.source.url} target="_blank" rel="noreferrer">
-            1. Open {hostOf(country.source.url)} <Icon.External size={13} />
-          </a>
-        )
+      desc={
+        country.source.fileUrl
+          ? 'This source publishes files at a direct link: fetch a month straight from it, or upload files you downloaded.'
+          : 'This source publishes files, so nothing is extracted. Download them from the source and keep them here.'
       }
     >
-      <div className="upload-grid">
-        <div className="field">
-          <span className="field-label">2. Month the files are for</span>
-          <MonthRangePicker single start={period} end={period} onChange={(s) => setPeriod(s)} marked={country.completedMonths} markedLabel="Completed" />
-        </div>
-        <label
-          className={`dropzone ${over ? 'over' : ''} ${picked.length ? 'has-files' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setOver(false);
-            accept(e.dataTransfer.files);
-          }}
-        >
-          <input ref={input} type="file" multiple accept=".xlsx,.xls,.csv,.zip" className="sr-only" onChange={(e) => accept(e.target.files)} />
-          <Icon.Upload size={18} />
-          {picked.length ? (
-            <span className="dropzone-text">
-              <b>{plural(picked.length, 'file')}</b> · {picked.map((f) => `${f.name} (${fmtSize(f.size)})`).join(', ')}
-            </span>
-          ) : (
-            <span className="dropzone-text">
-              <b>3. Drop files here</b> or click to choose · .xlsx, .xls, .csv, .zip
-            </span>
-          )}
-        </label>
-      </div>
-
-      <div className="panel-foot">
-        {alreadyDone ? (
-          <span className="foot-summary">{fmtMonth(period)} is already completed. A file with the same name is replaced.</span>
-        ) : (
-          <label className="toggle">
-            <input type="checkbox" className="check" checked={markDone} onChange={(e) => setMarkDone(e.target.checked)} />
-            Mark {period ? fmtMonth(period) : 'the month'} completed after uploading
-          </label>
-        )}
-        <Button variant="primary" icon={<Icon.Upload size={14} />} loading={busy} disabled={!period || !picked.length} onClick={upload}>
-          Upload {picked.length > 1 ? plural(picked.length, 'file') : 'file'}
-        </Button>
-      </div>
-
-      {countryFiles.length > 0 ? (
-        <div className="recent-files">
-          <span className="field-label">Latest files for {country.name}</span>
-          <ul>
-            {countryFiles.map((f) => (
-              <li key={f.relativePath}>
-                <button type="button" className="text-btn" onClick={() => api.download(f.relativePath)}>
-                  <Icon.Download size={12} /> {f.fileName.split('__').slice(1).join('__') || f.fileName}
-                </button>
-                <span className="cell-sub">
-                  {f.period ? fmtMonth(f.period) : ''} · {fmtRelative(f.modifiedAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <Link href={`/files?country=${country.code}`} className="link">
-            All files <Icon.ChevronRight size={14} />
-          </Link>
-        </div>
-      ) : (
-        files && <Empty>No files uploaded for {country.name} yet.</Empty>
-      )}
+      <CountryUpload country={country} />
     </Panel>
   );
 }

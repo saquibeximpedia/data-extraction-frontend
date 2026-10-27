@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, errorText } from '@/lib/api';
 import { useApp } from '@/lib/store';
@@ -11,7 +10,9 @@ import { useAction, useChangedKeys } from '@/lib/hooks';
 import { latestPublished, MONTH_LABELS, monthState, nowPeriod, yearPeriods } from '@/lib/months';
 import { MarkCompletedButton, RemoveMonthsButton } from './CountryAction';
 import { ShareModal, SharesList } from './Shares';
-import { Badge, Button, CodeTag, ConfirmModal, Empty, FileIcon, FilterTabs, Icon, Menu, revealStyle, SearchInput, Skeleton, useToast, type MenuItem } from './ui';
+import { UploadModal } from './Uploads';
+import { FileRowsSkeleton } from './PageSkeletons';
+import { Badge, Button, CodeTag, ConfirmModal, Dock, Empty, FileIcon, Icon, Menu, revealStyle, SearchInput, Skeleton, useToast, type MenuItem } from './ui';
 
 const RECENT = 'RECENT';
 const SHARES = 'SHARES';
@@ -76,6 +77,7 @@ export function FilesView() {
   const [busy, setBusy] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string[] | null>(null);
   const [toShare, setToShare] = useState<string[] | null>(null);
+  const [uploading, setUploading] = useState(false);
   const { busy: deleting, run } = useAction();
 
   const countryName = (code: string) => countries?.find((c) => c.code === code)?.name ?? code;
@@ -151,13 +153,7 @@ export function FilesView() {
   }
 
   const fileActions = (f: ExportFile): MenuItem[] => [
-    {
-      label: 'Copy path',
-      icon: <Icon.Copy size={15} />,
-      onSelect: () => navigator.clipboard?.writeText(f.relativePath).then(() => toast('ok', 'Path copied', f.relativePath)),
-    },
     { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare([f.relativePath]) },
-    ...(f.countryCode ? [{ label: `Open ${countryName(f.countryCode)}`, icon: <Icon.Calendar size={15} />, href: `/countries/${f.countryCode}` }] : []),
     { label: 'Delete file', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
 
@@ -182,6 +178,7 @@ export function FilesView() {
             )}
             {f.part ? `Part ${f.part} of ${partCounts.get(monthKey(f)) ?? f.part} · ` : ''}
             {fmtSize(f.sizeBytes)} · <span title={fmtDate(f.modifiedAt)}>{fmtRelative(f.modifiedAt)}</span>
+            {f.uploadedBy ? ` · by ${f.uploadedBy}` : ''}
           </span>
         </span>
         {!selecting && (
@@ -196,18 +193,13 @@ export function FilesView() {
 
   // ---------------------------------------------------------------- main area
 
-  let head: { title: React.ReactNode; desc: React.ReactNode; visible: ExportFile[] };
+  // filter sits beside the search box
+  let head: { title: React.ReactNode; desc: React.ReactNode; visible: ExportFile[]; filter?: React.ReactNode };
   let body: React.ReactNode;
 
   if (loading) {
     head = { title: 'Files', desc: 'Loading…', visible: [] };
-    body = (
-      <div className="skeleton-rows">
-        {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} height={44} radius={8} />
-        ))}
-      </div>
-    );
+    body = <FileRowsSkeleton />;
   } else if (q) {
     head = { title: 'Search results', desc: `${plural(results.length, 'file')} match “${query.trim()}”`, visible: results.slice(0, 200) };
     body = results.length ? <ul className="file-list">{results.slice(0, 200).map((f) => fileRow(f, true))}</ul> : <Empty>No files match.</Empty>;
@@ -233,27 +225,29 @@ export function FilesView() {
       ),
       desc: `${plural(group.files.length, 'file')} · ${fmtSize(sizeOf(group.files))} · ${plural(monthsWithFiles, 'month')}`,
       visible: yearFiles,
+      filter: (
+        <Menu
+          label="Filter by year"
+          width={180}
+          trigger={{
+            className: 'btn btn-secondary btn-md filter-btn',
+            content: (
+              <>
+                <Icon.Filter size={15} /> {shownYear}
+              </>
+            ),
+          }}
+          items={years.map((y) => ({
+            label: `${y} · ${plural(group.files.filter((f) => (f.period?.slice(0, 4) ?? 'Other') === y).length, 'file')}`,
+            active: y === shownYear,
+            icon: y === shownYear ? <Icon.Check size={14} /> : undefined,
+            onSelect: () => setYear(y),
+          }))}
+        />
+      ),
     };
     body = (
       <>
-        <div className="files-subbar">
-          <FilterTabs<string>
-            label="Year"
-            value={shownYear}
-            onChange={setYear}
-            options={years.map((y) => ({ value: y, label: y, count: group.files.filter((f) => (f.period?.slice(0, 4) ?? 'Other') === y).length }))}
-          />
-          <div className="inline-form">
-            {group.code !== 'Other' && (
-              <Link href={`/countries/${group.code}`} className="btn btn-ghost btn-sm">
-                Months <Icon.ChevronRight size={13} />
-              </Link>
-            )}
-            <Button size="sm" variant="secondary" icon={<Icon.Download size={14} />} loading={busy === `year-${shownYear}`} onClick={() => download(pathsOf(yearFiles), `year-${shownYear}`)}>
-              {yearFiles.length === 1 ? 'Download' : `Download ${shownYear}`}
-            </Button>
-          </div>
-        </div>
         {shownYear === 'Other' ? <ul className="file-list">{yearFiles.map((f) => fileRow(f))}</ul> : monthList(Number(shownYear), yearFiles, groupCountry)}
       </>
     );
@@ -322,7 +316,9 @@ export function FilesView() {
       )}
       <div className="files-layout reveal" style={revealStyle(1)}>
         <aside className="files-side" aria-label="Countries">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search files" />
+          <Button variant="primary" icon={<Icon.Upload size={15} />} onClick={() => setUploading(true)}>
+            Upload files
+          </Button>
           <StorageMeter used={sizeOf(files)} loading={loading} />
 
           <nav className="side-list">
@@ -358,8 +354,14 @@ export function FilesView() {
               <h2 className="panel-title">{head.title}</h2>
               <p className="panel-desc">{head.desc}</p>
             </div>
-            {head.visible.length > 0 &&
-              (selecting ? (
+            <div className="inline-form files-tools">
+              <SearchInput value={query} onChange={setQuery} placeholder="Search files" className="search-sm" />
+              {!q && head.filter}
+            </div>
+          </div>
+          {head.visible.length > 0 && (
+            <div className="files-subbar">
+              {selecting ? (
                 <div className="inline-form">
                   <label className="toggle">
                     <Check {...checkFor(visiblePaths, 'Select all shown')} /> Select all
@@ -372,32 +374,32 @@ export function FilesView() {
                 <Button size="sm" variant="secondary" icon={<Icon.Select size={15} />} onClick={() => setSelecting(true)}>
                   Select
                 </Button>
-              ))}
-          </div>
+              )}
+            </div>
+          )}
           {body}
         </section>
       </div>
 
-      <div className={`selection-dock ${selected.size ? 'on' : ''}`} aria-live="polite" aria-hidden={!selected.size}>
-        <div className="selection-dock-inner surface-pop">
-          <span className="bulk-text">
-            <b>{plural(selected.size, 'file')}</b> · {fmtSize(sizeOf(selectedFiles))}
-          </span>
-          <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={busy === 'selection'} onClick={() => download([...selected], 'selection')}>
-            {selected.size === 1 ? 'Download' : 'Download zip'}
-          </Button>
-          <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
-            Share link
-          </Button>
-          <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
-            Delete
-          </Button>
-          <Button variant="ghost" size="sm" iconOnly aria-label="Clear selection" icon={<Icon.X size={14} />} onClick={() => setSelected(new Set())} />
-        </div>
-      </div>
+      <Dock open={selected.size > 0}>
+        <span className="bulk-text">
+          <b>{plural(selected.size, 'file')}</b> · {fmtSize(sizeOf(selectedFiles))}
+        </span>
+        <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={busy === 'selection'} onClick={() => download([...selected], 'selection')}>
+          {selected.size === 1 ? 'Download' : 'Download zip'}
+        </Button>
+        <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
+          Share link
+        </Button>
+        <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
+          Delete
+        </Button>
+        <Button variant="ghost" size="sm" iconOnly aria-label="Clear selection" icon={<Icon.X size={14} />} onClick={() => setSelected(new Set())} />
+      </Dock>
 
-      <ShareModal paths={toShare} onClose={() => setToShare(null)} />
-
+      <UploadModal open={uploading} onClose={() => setUploading(false)} initialCode={group && group.code !== 'Other' ? group.code : undefined} />
+      {/* Once the link is made the selection has done its job; closing without one keeps it */}
+      <ShareModal paths={toShare} onClose={() => setToShare(null)} onCreated={stopSelecting} />
       <ConfirmModal
         open={Boolean(toDelete)}
         onClose={() => setToDelete(null)}

@@ -137,7 +137,7 @@ const RUN_FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_part(\d+))?\./i;
 /**
  * The files a run saved, grouped by country and month (a big month comes in parts): each file
  * with its size from storage and a download, each month and the whole run as one zip. Files
- * deleted since are marked as gone.
+ * deleted since are marked Deleted; each country links to all of its files.
  */
 export function RunFiles({ files }: { files: string[] }) {
   const { files: stored, countries } = useApp();
@@ -152,6 +152,7 @@ export function RunFiles({ files }: { files: string[] }) {
     return {
       path,
       name,
+      code,
       country: code ? (countries?.find((c) => c.code === code)?.name ?? code) : '',
       period: m?.[2] ?? null,
       part: m?.[3] ? Number(m[3]) : null,
@@ -163,6 +164,8 @@ export function RunFiles({ files }: { files: string[] }) {
   const available = rows.filter(isAvailable);
   const sizeOf = (list: Row[]) => list.reduce((n, r) => n + (r.stored?.sizeBytes ?? 0), 0);
   const total = sizeOf(rows);
+  const deleted = rows.length - available.length;
+  const codes = [...new Map(rows.filter((r) => r.code).map((r) => [r.code!, r.country])).entries()];
   // One group per country and month, in the order the files sort
   const groups = [...new Map(rows.map((r) => [`${r.country}|${r.period}`, rows.filter((x) => x.country === r.country && x.period === r.period)])).values()];
 
@@ -187,14 +190,28 @@ export function RunFiles({ files }: { files: string[] }) {
             {plural(files.length, 'file')}
             {total ? ` · ${fmtSize(total)}` : ''}
             {rows.some((r) => r.part) ? ' · large months are split into parts' : ''}
+            {deleted ? ` · ${deleted === rows.length ? 'all' : deleted} deleted` : ''}
           </p>
         </div>
-        {available.length > 1 && (
-          <Button size="sm" variant="secondary" icon={<Icon.Download size={14} />} loading={busy === 'all'} onClick={() => download(available.map((r) => r.path), 'all')}>
-            Download all (zip)
-          </Button>
-        )}
+        <div className="inline-form">
+          {codes.map(([code, name]) => (
+            <Link key={code} href={`/files?country=${code}`} className="btn btn-ghost btn-sm">
+              {codes.length > 1 ? `All ${name} files` : 'See all files'} <Icon.ChevronRight size={13} />
+            </Link>
+          ))}
+          {available.length > 1 && (
+            <Button size="sm" variant="secondary" icon={<Icon.Download size={14} />} loading={busy === 'all'} onClick={() => download(available.map((r) => r.path), 'all')}>
+              Download all (zip)
+            </Button>
+          )}
+        </div>
       </div>
+      {deleted === rows.length && (
+        <div className="note note-warn note-tight">
+          <Icon.Trash size={14} />
+          <span>{rows.length === 1 ? 'This file was deleted' : 'These files were deleted'} from storage. Extract the months again to recreate them.</span>
+        </div>
+      )}
       <div className="month-list">
         {groups.map((group) => {
           const first = group[0];
@@ -224,9 +241,16 @@ export function RunFiles({ files }: { files: string[] }) {
                     <li key={r.path} className={`file-row ${gone ? 'is-gone' : ''}`}>
                       <FileIcon name={r.name} />
                       <span className="file-row-text" title={r.path}>
-                        <span className="file-row-name">{r.name}</span>
+                        <span className="file-row-name">
+                          {r.name}{' '}
+                          {gone && (
+                            <Badge tone="red" dot>
+                              Deleted
+                            </Badge>
+                          )}
+                        </span>
                         <span className="file-row-meta">
-                          {[r.part && `Part ${r.part} of ${parts}`, r.stored ? fmtSize(r.stored.sizeBytes) : gone ? 'No longer in storage' : 'Whole month'].filter(Boolean).join(' · ')}
+                          {[r.part && `Part ${r.part} of ${parts}`, r.stored ? fmtSize(r.stored.sizeBytes) : gone ? 'Removed from storage' : 'Whole month'].filter(Boolean).join(' · ')}
                         </span>
                       </span>
                       {!gone && (

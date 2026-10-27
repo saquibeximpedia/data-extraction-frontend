@@ -60,7 +60,7 @@ export function StepLabel({ status }: { status: CountryStatus }) {
   );
 }
 
-/** A country's extraction from its row: the running one, or the extract form with its due months filled in */
+/** A country's next place to go from its row: the running extraction, the extract form with its due months filled in, or its upload form */
 export function CountryLinks({ country, status }: { country: Country; status: CountryStatus }) {
   const extractability = useExtractability();
   const { next } = status;
@@ -81,7 +81,11 @@ export function CountryLinks({ country, status }: { country: Country; status: Co
         >
           Extract <Icon.ArrowRight size={13} />
         </Link>
-      ) : null}
+      ) : (
+        <Link href={`/countries/${country.code}#upload`} className="btn btn-ghost btn-sm">
+          Upload <Icon.ArrowRight size={13} />
+        </Link>
+      )}
     </div>
   );
 }

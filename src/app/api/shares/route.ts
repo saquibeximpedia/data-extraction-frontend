@@ -12,5 +12,5 @@ export const GET = route(async (req) => {
 export const POST = route(async (req) => {
   const user = await requireUser(req);
   const body = parse(createShareSchema, await jsonBody(req));
-  return Response.json(await shares.create(body, user.email), { status: 201 });
+  return Response.json(await shares.create(body, user.username), { status: 201 });
 });

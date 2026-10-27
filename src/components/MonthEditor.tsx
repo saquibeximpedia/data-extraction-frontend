@@ -8,7 +8,7 @@ import type { Country } from '@/lib/types';
 import { plural } from '@/lib/format';
 import { monthState, type MonthState } from '@/lib/months';
 import { MonthGrid, STATE_LABEL } from './MonthGrid';
-import { Button, Icon } from './ui';
+import { Button, Dock, Icon } from './ui';
 
 /** Each click moves a month to the next status, round and round */
 const NEXT: Record<MonthState, MonthState> = { none: 'extracting', extracting: 'completed', completed: 'none' };
@@ -16,7 +16,9 @@ const ORDER: MonthState[] = ['completed', 'extracting', 'none'];
 
 /**
  * Edit mode of a country's months: click a month to cycle it through not done → extracting →
- * completed. Nothing is saved until "Save"; changed months are outlined until then.
+ * completed (each month's tooltip says its status). A dock at the bottom of the window stays up while
+ * editing: Save keeps the changes, Cancel drops them.
+ * Changed months are marked until then.
  */
 export function MonthEditor({ country, years, onDone }: { country: Country; years: number[]; onDone: () => void }) {
   const { putCountry } = useApp();
@@ -34,6 +36,7 @@ export function MonthEditor({ country, years, onDone }: { country: Country; year
     });
 
   const changes = [...staged].sort(([a], [b]) => a.localeCompare(b));
+  const dirty = changes.length > 0;
   const summary = ORDER.map((s) => ({ state: s, n: changes.filter(([, v]) => v === s).length })).filter((s) => s.n > 0);
 
   function save() {
@@ -47,19 +50,11 @@ export function MonthEditor({ country, years, onDone }: { country: Country; year
 
   return (
     <div className="month-editor">
-      <p className="editor-help">
-        Click a month to change it: <span className="cycle-chip state-none">Not done</span>
-        <Icon.ArrowRight size={12} />
-        <span className="cycle-chip state-extracting">Extracting</span>
-        <Icon.ArrowRight size={12} />
-        <span className="cycle-chip state-completed">Completed</span>
-      </p>
-
       <MonthGrid country={country} years={years} edit={{ staged, onCycle: cycle }} />
 
-      <div className={`editor-foot ${changes.length ? 'dirty' : ''}`}>
+      <Dock open>
         <span className="editor-summary">
-          {changes.length ? (
+          {dirty ? (
             <>
               <b>{plural(changes.length, 'change')}</b>
               {summary.map((s) => (
@@ -69,18 +64,16 @@ export function MonthEditor({ country, years, onDone }: { country: Country; year
               ))}
             </>
           ) : (
-            'No changes yet'
+            'Editing months · no changes yet'
           )}
         </span>
-        <div className="inline-form">
-          <Button size="sm" variant="ghost" onClick={() => (changes.length ? setStaged(new Map()) : onDone())}>
-            {changes.length ? 'Discard' : 'Done'}
-          </Button>
-          <Button size="sm" variant="primary" icon={<Icon.Check size={13} />} disabled={!changes.length} loading={saving} onClick={save}>
-            Save changes
-          </Button>
-        </div>
-      </div>
+        <Button size="sm" variant="ghost" disabled={saving} onClick={onDone}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" icon={<Icon.Check size={13} />} loading={saving} disabled={!dirty} onClick={save}>
+          Save changes
+        </Button>
+      </Dock>
     </div>
   );
 }

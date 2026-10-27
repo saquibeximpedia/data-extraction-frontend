@@ -62,3 +62,43 @@ export function Field({ label, htmlFor, aside, children }: { label: string; html
     </div>
   );
 }
+
+/** A whole-number field with an optional unit after it; empty means "use the default" (shown as the placeholder) */
+export function NumberInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  unit,
+  min,
+  max,
+  disabled,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="number-input">
+      <input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        className="control"
+        value={value}
+        min={min}
+        max={max}
+        step={1}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ''))}
+      />
+      {unit && <span className="number-unit">{unit}</span>}
+    </div>
+  );
+}

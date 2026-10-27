@@ -2,30 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { api, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
 import type { Run, RunLog } from '@/lib/types';
 import { fmtDate, fmtDay, fmtMonth, fmtMs, fmtRange, fmtRelative, fmtTime, plural } from '@/lib/format';
-import { useChangedKeys } from '@/lib/hooks';
+import { useChangedKeys, useRowLink } from '@/lib/hooks';
 import { describeRun, fmtRecords, isRunning, needsAttention, requestCount, runNotes, runPeriods, timeTaken } from '@/lib/runs';
 import { extractHref, MarkCompletedButton, RemoveMonthsButton } from './CountryAction';
 import { Elapsed, formatLogMessage, RunBar, RunFiles, RunOutcome, RunStatusBadge, StopButton, useProgress } from './RunParts';
 import { ServiceNotice } from './ServiceNotice';
-import { Badge, Button, Empty, FilterTabs, Icon, LoadingPanel, Panel, ProgressBar, revealStyle, Skeleton, StatTiles, useToast } from './ui';
+import { ExtractionSkeleton, TableRowsSkeleton } from './PageSkeletons';
+import { Badge, Button, Empty, FilterTabs, Icon, Panel, ProgressBar, revealStyle, StatTiles, useToast } from './ui';
 
 function ExtractionRow({ run, flash }: { run: Run; flash: boolean }) {
-  const router = useRouter();
+  const rowLink = useRowLink()(`/extractions/${run.id}`);
   const notes = runNotes(run);
 
   return (
-    <tr className={`clickable ${flash ? 'flash' : ''}`} onClick={() => router.push(`/extractions/${run.id}`)}>
+    <tr {...rowLink} className={`${rowLink.className} ${flash ? 'flash' : ''}`}>
       <td className="nowrap" title={fmtDate(run.startedAt)}>
         <div className="cell-strong">{fmtTime(run.startedAt)}</div>
         <div className="cell-sub">{fmtDay(run.startedAt)}</div>
       </td>
       <td>
-        <Link href={`/extractions/${run.id}`} className="cell-strong row-link" onClick={(e) => e.stopPropagation()}>
+        <Link href={`/extractions/${run.id}`} className="cell-strong row-link">
           {describeRun(run)}
         </Link>
         <div className="cell-sub row-meta">
@@ -152,10 +152,7 @@ export function ExtractionsList() {
         }
       >
         {runs === null ? (
-          <div className="padded skeleton-rows">
-            <Skeleton height={36} />
-            <Skeleton height={36} />
-          </div>
+          <TableRowsSkeleton rows={6} cols={[0.35, 1.2, 0.9, 0.35, 0.35, 0.3]} />
         ) : shown.length === 0 ? (
           <Empty>
             {list.length ? 'No extractions match this filter.' : 'No extractions yet.'}{' '}
@@ -276,7 +273,7 @@ export function ExtractionDetail({ id }: { id: string }) {
       </Panel>
     );
   }
-  if (!run) return <LoadingPanel />;
+  if (!run) return <ExtractionSkeleton />;
 
   const notes = runNotes(run);
   const running = isRunning(run);
@@ -310,8 +307,8 @@ export function ExtractionDetail({ id }: { id: string }) {
             <Icon.Alert />
             <span>
               Live logs and progress come from the extraction service, which is offline. These numbers are the last ones it saved.{' '}
-              <Link href="/settings" className="link">
-                Settings
+              <Link href="/service" className="link">
+                Extraction service
               </Link>
             </span>
           </div>

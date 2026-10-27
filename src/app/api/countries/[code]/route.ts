@@ -7,7 +7,7 @@ type Ctx = { params: Promise<{ code: string }> };
 export const PATCH = route<Ctx>(async (req, { params }) => {
   const user = await requireAdmin(req);
   const patch = parse(countryPatchSchema, await jsonBody(req));
-  return Response.json(await countries.update((await params).code, patch, user.email));
+  return Response.json(await countries.update((await params).code, patch, user.username));
 });
 
 /** DELETE /api/countries/:code (admin) → removes a download-only country */

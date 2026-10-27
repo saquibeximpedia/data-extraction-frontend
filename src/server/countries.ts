@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Country, CountryPatch, ExtractorInfo, MonthChange } from '@/lib/types';
-import { recentPublishedPeriods } from '@/lib/months';
+import { nowPeriod, recentPublishedPeriods } from '@/lib/months';
 import { badRequest, conflict, notFound, result } from './http';
 import { admin } from './supabase';
 
@@ -45,6 +45,7 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
       endpoint: edit.endpoint ?? base?.source.endpoint ?? '',
       method: edit.method || base?.source.method || (row.kind === 'manual' ? MANUAL_METHOD : ''),
       output: edit.output || base?.source.output || (row.kind === 'manual' ? MANUAL_OUTPUT : ''),
+      fileUrl: row.kind === 'manual' ? (edit.fileUrl ?? '') : '',
     },
     notes: edit.notes ?? '',
     lagMonths,
@@ -98,6 +99,9 @@ export const countryPatchSchema = z.object({
   lagMonths: z.number().int().min(0).max(24).optional(),
   publishDay: z.number().int().min(1).max(31).optional(),
   startPeriod: z.union([z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use YYYY-MM'), z.literal('')]).optional(),
+  fileUrl: z
+    .union([z.string().trim().max(500).regex(/^https?:\/\/\S+$/i, 'Enter a full http(s) link to the file, e.g. https://example.gov/trade_{YYYY}{MM}.xlsx'), z.literal('')])
+    .optional(),
 });
 
 export const newCountrySchema = countryPatchSchema.extend({
@@ -148,6 +152,9 @@ export const countries = {
    */
   async setMonths(code: string, changes: MonthChange[], by: string): Promise<number> {
     const country = await this.get(code);
+    // Clearing a future month is allowed, so bad marks from before this check can be removed
+    const future = changes.filter((c) => c.status && c.period > nowPeriod()).map((c) => c.period);
+    if (future.length) throw badRequest(`${future.join(', ')} ${future.length === 1 ? 'is' : 'are'} in the future and can't be marked yet.`);
     const latest = new Map(changes.map((c) => [c.period, c.status]));
     const current = (p: string) => (country.completedMonths.includes(p) ? 'completed' : country.extractingMonths.includes(p) ? 'extracting' : null);
     const effective = [...latest].filter(([period, status]) => current(period) !== status);

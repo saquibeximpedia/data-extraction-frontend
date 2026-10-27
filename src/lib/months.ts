@@ -49,12 +49,20 @@ export function recentPublishedPeriods(lagMonths: number, publishDay: number, co
   return periodRange(addMonths(latest, -(count - 1)), latest);
 }
 
-/** Years to show for a country, newest first: from its first marked month (at least last year) to this year, plus `extra` earlier */
-export function yearsFor(country: Country, extra = 0): number[] {
+/** Years to show for a country, newest first: from its first marked month (at least last year) to this year, plus any `added` */
+export function yearsFor(country: Country, added: number[] = []): number[] {
   const thisYear = new Date().getFullYear();
   const first = [...country.completedMonths, ...country.extractingMonths].sort()[0];
-  const from = Math.min(first ? Number(first.slice(0, 4)) : thisYear, thisYear - 1) - extra;
-  return Array.from({ length: thisYear - from + 1 }, (_, i) => thisYear - i);
+  const from = Math.min(first ? Number(first.slice(0, 4)) : thisYear, thisYear - 1);
+  const base = Array.from({ length: thisYear - from + 1 }, (_, i) => thisYear - i);
+  return [...new Set([...base, ...added])].sort((a, b) => b - a);
+}
+
+/** Earlier years that can be added to a country's months, newest first: back to its start, or 15 years */
+export function addableYears(country: Country, shown: number[]): number[] {
+  const thisYear = new Date().getFullYear();
+  const earliest = country.startPeriod ? Number(country.startPeriod.slice(0, 4)) : thisYear - 15;
+  return Array.from({ length: Math.max(0, thisYear - earliest + 1) }, (_, i) => thisYear - i).filter((y) => !shown.includes(y));
 }
 
 /** The latest month the source should have published by now */
@@ -83,3 +91,9 @@ export function monthState(country: Country, period: string): MonthState {
 }
 
 export type MonthState = 'completed' | 'extracting' | 'none';
+
+/** A direct file link for a month: "https://x.gov/trade_{YYYY}{MM}.xlsx" for 2026-08 → "https://x.gov/trade_202608.xlsx" ({YY} 26, {M} 8) */
+export function fileUrlFor(template: string, period: string): string {
+  const [yyyy, mm] = period.split('-');
+  return template.replace(/\{YYYY\}/g, yyyy).replace(/\{YY\}/g, yyyy.slice(2)).replace(/\{MM\}/g, mm).replace(/\{M\}/g, String(Number(mm)));
+}

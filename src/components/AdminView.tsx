@@ -7,7 +7,9 @@ import { useApp } from '@/lib/store';
 import type { AdminUser, Country, CountryPatch, Role } from '@/lib/types';
 import { fmtDate, fmtMonth, fmtRelative, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
-import { Badge, Button, ConfirmModal, Empty, Field, Icon, LoadingPanel, Menu, Panel, Segmented, Skeleton, useToast, type MenuItem } from './ui';
+import { normalizeUsername, USERNAME_RE } from '@/lib/username';
+import { FormPageSkeleton, TableRowsSkeleton } from './PageSkeletons';
+import { Badge, Button, ConfirmModal, Empty, Field, Icon, Menu, Panel, Segmented, useToast, type MenuItem } from './ui';
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: 'user', label: 'User' },
@@ -19,25 +21,26 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
 /** "New user": an account that can sign in straight away */
 function CreateUserModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const { busy, run } = useAction();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('user');
 
   // Each time it opens, it starts empty
   useEffect(() => {
     if (!open) return;
-    setEmail('');
+    setUsername('');
     setPassword('');
     setRole('user');
   }, [open]);
 
-  const valid = /\S+@\S+\.\S+/.test(email.trim()) && password.length >= 8;
+  const name = normalizeUsername(username);
+  const valid = USERNAME_RE.test(name) && password.length >= 8;
 
   return (
     <ConfirmModal
       open={open}
       onClose={onClose}
-      onConfirm={() => run(() => api.createUser(email.trim(), password, role), `${email.trim()} can sign in now`, () => (onClose(), onCreated()))}
+      onConfirm={() => run(() => api.createUser(name, password, role), `${name} can sign in now`, () => (onClose(), onCreated()))}
       title="New user"
       icon={<Icon.Plus size={18} />}
       confirmVariant="primary"
@@ -46,9 +49,21 @@ function CreateUserModal({ open, onClose, onCreated }: { open: boolean; onClose:
       loading={busy}
       description={
         <div className="modal-form">
-          <p className="panel-desc">No email is sent; share the password with them directly.</p>
-          <Field label="Email" htmlFor="new-email">
-            <input id="new-email" className="control" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" autoFocus required />
+          <p className="panel-desc">They sign in with this username and password. Share the password with them directly.</p>
+          <Field label="Username" htmlFor="new-username">
+            <input
+              id="new-username"
+              className="control"
+              value={username}
+              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="e.g. john.smith"
+              autoFocus
+              required
+            />
+            <p className="field-help">3–32 characters: letters, digits, dots, dashes or underscores.</p>
           </Field>
           <Field label="Password (8+ characters)" htmlFor="new-password">
             <input id="new-password" className="control" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
@@ -89,7 +104,7 @@ export function UsersList() {
     {
       label: u.role === 'admin' ? 'Make regular user' : 'Make admin',
       icon: <Icon.Lock size={14} />,
-      onSelect: () => run(() => api.updateUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }), `${u.email} is now ${u.role === 'admin' ? 'a user' : 'an admin'}`, load),
+      onSelect: () => run(() => api.updateUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }), `${u.username} is now ${u.role === 'admin' ? 'a user' : 'an admin'}`, load),
     },
     { label: 'Set new password', icon: <Icon.Pencil size={14} />, onSelect: () => (setNewPassword(''), setToReset(u)) },
     { label: 'Delete account', icon: <Icon.Trash size={14} />, separator: true, danger: true, onSelect: () => setToDelete(u) },
@@ -108,15 +123,13 @@ export function UsersList() {
       }
     >
       {users === null ? (
-        <div className="padded">
-          <Skeleton height={36} />
-        </div>
+        <TableRowsSkeleton rows={4} cols={[1, 0.4, 0.6, 0.5, 0.2]} />
       ) : (
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th>Email</th>
+                <th>Username</th>
                 <th style={{ width: 110 }}>Role</th>
                 <th style={{ width: 170 }}>Created</th>
                 <th style={{ width: 140 }}>Last sign-in</th>
@@ -127,12 +140,12 @@ export function UsersList() {
               {users.map((u) => (
                 <tr key={u.id}>
                   <td>
-                    <span className="cell-strong">{u.email}</span> {u.id === me?.id && <Badge>You</Badge>}
+                    <span className="cell-strong">{u.username}</span> {u.id === me?.id && <Badge>You</Badge>}
                   </td>
                   <td>{u.role === 'admin' ? <Badge tone="green" dot>Admin</Badge> : <Badge>User</Badge>}</td>
                   <td className="cell-sub-color nowrap">{fmtDate(u.createdAt)}</td>
                   <td className="cell-sub-color nowrap">{u.lastSignInAt ? fmtRelative(u.lastSignInAt) : 'Never'}</td>
-                  <td className="cell-actions">{u.id !== me?.id && <Menu items={actions(u)} label={`Manage ${u.email}`} />}</td>
+                  <td className="cell-actions">{u.id !== me?.id && <Menu items={actions(u)} label={`Manage ${u.username}`} />}</td>
                 </tr>
               ))}
             </tbody>
@@ -144,11 +157,11 @@ export function UsersList() {
       <ConfirmModal
         open={Boolean(toDelete)}
         onClose={() => setToDelete(null)}
-        onConfirm={() => toDelete && run(() => api.deleteUser(toDelete.id), `${toDelete.email} deleted`, () => (setToDelete(null), load()))}
+        onConfirm={() => toDelete && run(() => api.deleteUser(toDelete.id), `${toDelete.username} deleted`, () => (setToDelete(null), load()))}
         title="Delete account?"
         description={
           <>
-            <b>{toDelete?.email}</b> can no longer sign in. Extractions they started and files stay.
+            <b>{toDelete?.username}</b> can no longer sign in. Extractions they started and files stay.
           </>
         }
         confirmLabel="Delete account"
@@ -157,13 +170,13 @@ export function UsersList() {
       <ConfirmModal
         open={Boolean(toReset)}
         onClose={() => setToReset(null)}
-        onConfirm={() => toReset && run(() => api.updateUser(toReset.id, { password: newPassword }), `Password changed for ${toReset.email}`, () => setToReset(null))}
+        onConfirm={() => toReset && run(() => api.updateUser(toReset.id, { password: newPassword }), `Password changed for ${toReset.username}`, () => setToReset(null))}
         title="Set a new password"
         confirmDisabled={newPassword.length < 8}
         description={
           <div className="modal-form">
             <span>
-              New password for <b>{toReset?.email}</b>. Tell them directly; no email is sent.
+              New password for <b>{toReset?.username}</b>. Tell them directly; no email is sent.
             </span>
             <input
               className="control"
@@ -187,8 +200,6 @@ export function UsersList() {
 
 // ------------------------------------------------------------------ countries
 
-const NEW = 'NEW';
-
 const toForm = (c: Country): Required<CountryPatch> => ({
   name: c.name,
   sourceName: c.source.name,
@@ -200,6 +211,7 @@ const toForm = (c: Country): Required<CountryPatch> => ({
   lagMonths: c.lagMonths,
   publishDay: c.publishDay,
   startPeriod: c.startPeriod ?? '',
+  fileUrl: c.source.fileUrl,
 });
 
 function CountryFields({
@@ -241,6 +253,23 @@ function CountryFields({
       {text('sourceName', 'Source name', { placeholder: 'e.g. Statistics office trade portal' })}
       {text('sourceUrl', 'Source website', { type: 'url', placeholder: 'https://…' })}
       {kind === 'api' && text('endpoint', 'Requests (endpoint)')}
+      {kind === 'manual' && (
+        <div className="span-2">
+          <Field label="Direct file link" htmlFor="f-fileUrl" aside={<span className="field-aside">Optional</span>}>
+            <input
+              id="f-fileUrl"
+              type="url"
+              className="control mono"
+              value={form.fileUrl ?? ''}
+              placeholder="https://example.gov/trade/{YYYY}/exports_{YYYY}{MM}.xlsx"
+              onChange={(e) => set({ fileUrl: e.target.value })}
+            />
+            <p className="field-help">
+              When the source serves each month&apos;s Excel or CSV at a predictable link, users can fetch it in one click instead of downloading and uploading it. Use {'{YYYY}'}, {'{YY}'}, {'{MM}'} (08) and {'{M}'} (8) for the month.
+            </p>
+          </Field>
+        </div>
+      )}
       {num('lagMonths', 'Publication lag (months)', 0, 24)}
       {num('publishDay', 'Usually published on day', 1, 31)}
       <Field label="Data available from" htmlFor="f-startPeriod">
@@ -327,7 +356,7 @@ function NewCountry() {
       </div>
       <CountryFields form={form} set={(patch) => setForm((f) => ({ ...f, ...patch }))} kind="manual" />
       <div className="panel-foot">
-        <span className="foot-summary">Users open the source website from the country's page and upload the files they download there.</span>
+        <span className="foot-summary">No extraction: users upload the source's files on the country's page, or fetch them from the direct file link.</span>
         <Button size="sm" variant="primary" loading={busy} disabled={code.length !== 3 || !form.name || !form.sourceUrl} onClick={create}>
           Add country
         </Button>
@@ -348,7 +377,7 @@ export function CountryEditor({ code }: { code: string | null }) {
       </Panel>
     );
   }
-  if (!countries) return <LoadingPanel />;
+  if (!countries) return <FormPageSkeleton />;
   if (code && !country) {
     return (
       <Panel>
@@ -360,13 +389,13 @@ export function CountryEditor({ code }: { code: string | null }) {
   return (
     <Panel
       i={1}
-      title={country ? 'Details' : 'New download-only country'}
+      title={country ? `${country.name} details` : 'New download-only country'}
       desc={
         country?.updatedAt
           ? `Edited ${fmtRelative(country.updatedAt)}${country.updatedBy ? ` by ${country.updatedBy}` : ''}`
           : country
             ? 'Links and details users see on the country page.'
-            : 'For sources that publish files (e.g. Excel) instead of an API.'
+            : 'For sources that publish files (Excel or CSV) instead of an API. Nothing is extracted; files are uploaded or fetched from a direct link.'
       }
     >
       {country ? <EditCountry key={country.code} country={country} /> : <NewCountry />}

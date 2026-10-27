@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, errorText, shareUrl } from '@/lib/api';
 import { fmtDate, fmtRelative, fmtSize, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
 import type { Share } from '@/lib/types';
-import { Badge, Button, ConfirmModal, Empty, Field, Icon, Menu, Select, Skeleton, useToast, type MenuItem } from './ui';
+import { FileRowsSkeleton } from './PageSkeletons';
+import { Badge, Button, ConfirmModal, Empty, Field, Icon, Modal, Select, useToast } from './ui';
 
 type Expiry = '1' | '7' | '30' | 'never';
 
@@ -18,36 +20,26 @@ const EXPIRY_OPTIONS: { value: Expiry; label: string }[] = [
 
 const shareTitle = (s: Share) => s.title || (s.files.length === 1 ? s.files[0].name : plural(s.files.length, 'file'));
 
-/** A read-only box holding the link, with a copy button */
-function LinkBox({ id }: { id: string }) {
+function useCopyLink() {
   const toast = useToast();
-  const url = shareUrl(id);
-  return (
-    <div className="share-link">
-      <input className="control mono" readOnly value={url} aria-label="Share link" onFocus={(e) => e.target.select()} />
-      <Button
-        type="button"
-        size="sm"
-        variant="secondary"
-        icon={<Icon.Copy size={14} />}
-        onClick={() => navigator.clipboard?.writeText(url).then(() => toast('ok', 'Link copied'), () => toast('err', 'Could not copy', 'Select the link and copy it.'))}
-      >
-        Copy
-      </Button>
-    </div>
-  );
+  return (id: string) =>
+    navigator.clipboard?.writeText(shareUrl(id)).then(
+      () => toast('ok', 'Link copied'),
+      () => toast('err', 'Could not copy', 'Select the link and copy it.')
+    );
 }
 
 /**
- * Makes a link anyone can open to download the given files, optionally behind a password and
- * with an expiry. After it is made, the dialog shows the link to copy.
+ * Popup that makes a link anyone can open to download the given files, optionally behind a
+ * password and with an expiry. Once made, it shows the link to copy and calls `onCreated`.
  */
-export function ShareModal({ paths, onClose, onCreated }: { paths: string[] | null; onClose: () => void; onCreated?: (share: Share) => void }) {
+export function ShareModal({ paths, onClose, onCreated }: { paths: string[] | null; onClose: () => void; onCreated?: () => void }) {
+  const copy = useCopyLink();
   const [title, setTitle] = useState('');
   const [protect, setProtect] = useState(false);
   const [password, setPassword] = useState('');
   const [expiry, setExpiry] = useState<Expiry>('7');
-  const [created, setCreated] = useState<Share | null>(null);
+  const [created, setCreated] = useState<(Share & { reused: boolean }) | null>(null);
   const { busy, run } = useAction();
 
   // Each opening starts from a blank form
@@ -60,73 +52,83 @@ export function ShareModal({ paths, onClose, onCreated }: { paths: string[] | nu
     setCreated(null);
   }, [paths]);
 
-  if (!paths) return null;
-
   const passwordTooShort = protect && password.length < 4;
 
-  function create() {
-    if (created) return onClose();
+  function create(e: React.FormEvent) {
+    e.preventDefault();
+    if (passwordTooShort || !paths) return;
     run(
-      () => api.createShare({ paths: paths!, title: title.trim() || undefined, password: protect ? password : undefined, expiresInDays: expiry === 'never' ? null : Number(expiry) }),
+      () => api.createShare({ paths, title: title.trim() || undefined, password: protect ? password : undefined, expiresInDays: expiry === 'never' ? null : Number(expiry) }),
       '',
       (share) => {
         setCreated(share);
-        onCreated?.(share);
+        onCreated?.();
       },
       'Could not create the link'
     );
   }
 
   return (
-    <ConfirmModal
-      open
+    <Modal
+      open={Boolean(paths)}
       onClose={onClose}
-      onConfirm={create}
-      title={created ? 'Link ready' : `Share ${plural(paths.length, 'file')}`}
+      busy={busy}
+      title={created ? (created.reused ? 'You already shared these files' : 'Link ready') : `Share ${plural(paths?.length ?? 0, 'file')}`}
       icon={<Icon.Link size={18} />}
-      confirmVariant="primary"
-      confirmLabel={created ? 'Done' : 'Create link'}
-      cancelLabel={created ? 'Close' : 'Cancel'}
-      confirmDisabled={!created && passwordTooShort}
-      loading={busy}
-      description={
-        created ? (
-          <div className="share-form">
-            <p>
-              Anyone with this link can download {created.files.length === 1 ? 'the file' : `the ${created.files.length} files`}
-              {created.hasPassword ? ' after entering the password' : ''}.{' '}
-              {created.expiresAt ? `It stops working on ${fmtDate(created.expiresAt)}.` : 'It does not expire.'}
-            </p>
-            <LinkBox id={created.id} />
-            {created.hasPassword && <p className="field-help">Send the password separately from the link. It can't be shown again.</p>}
+    >
+      {created ? (
+        <div className="share-form">
+          <p className="modal-text">
+            {created.reused && 'This is your existing link for the same files. '}
+            Anyone with it can download {created.files.length === 1 ? 'the file' : `the ${created.files.length} files`}
+            {created.hasPassword ? ' after entering the password' : ''}. {created.expiresAt ? `It stops working on ${fmtDate(created.expiresAt)}.` : 'It does not expire.'}
+          </p>
+          <div className="share-link">
+            <input className="control mono" readOnly value={shareUrl(created.id)} aria-label="Share link" onFocus={(e) => e.target.select()} />
+            <Button type="button" size="sm" variant="primary" icon={<Icon.Copy size={14} />} onClick={() => copy(created.id)}>
+              Copy
+            </Button>
           </div>
-        ) : (
-          <div className="share-form">
-            <p>Anyone with the link can download {paths.length === 1 ? 'this file' : 'these files'}, without signing in. You can remove the link at any time under Files → Shared links.</p>
-            <Field label="Title" htmlFor="share-title" aside={<span className="field-aside">Optional</span>}>
-              <input id="share-title" className="control" value={title} maxLength={120} placeholder="e.g. Indonesia Q3 2026" onChange={(e) => setTitle(e.target.value)} />
-            </Field>
-            <Field label="Expires after" htmlFor="share-expiry">
-              <Select<Expiry> id="share-expiry" value={expiry} options={EXPIRY_OPTIONS} onChange={setExpiry} />
-            </Field>
-            <label className="toggle">
-              <input type="checkbox" className="check" checked={protect} onChange={(e) => setProtect(e.target.checked)} /> Require a password
-            </label>
-            {protect && (
-              <Field label="Password" htmlFor="share-password" aside={<span className="field-aside">At least 4 characters</span>}>
-                <input id="share-password" className="control" type="text" autoComplete="off" autoFocus value={password} maxLength={200} onChange={(e) => setPassword(e.target.value)} />
-              </Field>
-            )}
+          {created.hasPassword && <p className="field-help">Send the password separately from the link. It can't be shown again.</p>}
+          <div className="modal-center">
+            <Link href="/files?view=shares" className="btn btn-ghost btn-sm" onClick={onClose}>
+              All shared links <Icon.ChevronRight size={13} />
+            </Link>
           </div>
-        )
-      }
-    />
+        </div>
+      ) : (
+        <form className="share-form" onSubmit={create}>
+          <Field label="Title" htmlFor="share-title" aside={<span className="field-aside">Optional</span>}>
+            <input id="share-title" className="control" value={title} maxLength={120} placeholder="e.g. Indonesia Q3 2026" onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="Expires after" htmlFor="share-expiry">
+            <Select<Expiry> id="share-expiry" value={expiry} options={EXPIRY_OPTIONS} onChange={setExpiry} />
+          </Field>
+          <label className="toggle">
+            <input type="checkbox" className="check" checked={protect} onChange={(e) => setProtect(e.target.checked)} /> Require a password
+          </label>
+          {protect && (
+            <Field label="Password" htmlFor="share-password" aside={<span className="field-aside">At least 4 characters</span>}>
+              <input id="share-password" className="control" type="text" autoComplete="off" autoFocus value={password} maxLength={200} onChange={(e) => setPassword(e.target.value)} />
+            </Field>
+          )}
+          <div className="modal-actions">
+            <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" size="sm" icon={<Icon.Link size={14} />} loading={busy} disabled={passwordTooShort}>
+              Create link
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 
-/** Every share link: copy, open or remove each one */
+/** Every share link, each with Copy and Remove */
 export function SharesList() {
-  const toast = useToast();
+  const copy = useCopyLink();
   const [list, setList] = useState<Share[] | null>(null);
   const [error, setError] = useState('');
   const [toRemove, setToRemove] = useState<Share | null>(null);
@@ -152,12 +154,6 @@ export function SharesList() {
     }, 'Could not remove the link');
   }
 
-  const actions = (s: Share): MenuItem[] => [
-    { label: 'Copy link', icon: <Icon.Copy size={15} />, onSelect: () => navigator.clipboard?.writeText(shareUrl(s.id)).then(() => toast('ok', 'Link copied')) },
-    { label: 'Open link', icon: <Icon.External size={15} />, onSelect: () => window.open(shareUrl(s.id), '_blank', 'noopener') },
-    { label: 'Remove link', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToRemove(s) },
-  ];
-
   if (error) {
     return (
       <div className="note note-error note-tight" role="alert">
@@ -170,11 +166,7 @@ export function SharesList() {
   }
   if (!list) {
     return (
-      <div className="skeleton-rows">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} height={52} radius={8} />
-        ))}
-      </div>
+    <FileRowsSkeleton rows={4} />
     );
   }
   if (!list.length) return <Empty>No share links yet. Select files and choose Share link to make one.</Empty>;
@@ -205,17 +197,9 @@ export function SharesList() {
             </span>
             <span className="file-row-actions">
               {!s.expired && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  iconOnly
-                  aria-label="Copy link"
-                  title="Copy link"
-                  icon={<Icon.Copy size={16} />}
-                  onClick={() => navigator.clipboard?.writeText(shareUrl(s.id)).then(() => toast('ok', 'Link copied'))}
-                />
+                <Button size="sm" variant="ghost" iconOnly aria-label="Copy link" title="Copy link" icon={<Icon.Copy size={16} />} onClick={() => copy(s.id)} />
               )}
-              <Menu items={actions(s)} label="Link options" />
+              <Button size="sm" variant="ghost" iconOnly className="btn-danger-ghost" aria-label="Remove link" title="Remove link" icon={<Icon.Trash size={16} />} onClick={() => setToRemove(s)} />
             </span>
           </li>
         ))}

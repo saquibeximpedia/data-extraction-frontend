@@ -19,8 +19,8 @@ export function ServiceNotice({ impact }: { impact: React.ReactNode }) {
         <b>The extraction service is offline</b> at <span className="mono">{service.url}</span>. {impact}
       </span>
       <RecheckButton size="sm" />
-      <Link href="/settings" className="btn btn-ghost btn-sm">
-        <Icon.Gear size={13} /> Settings
+      <Link href="/service" className="btn btn-ghost btn-sm">
+        <Icon.Plug size={13} /> Connection
       </Link>
     </div>
   );
@@ -128,7 +128,7 @@ export function ServiceDown() {
       </p>
       <div className="inline-form">
         <RecheckButton />
-        <Link href="/settings" className="btn btn-primary btn-md">
+        <Link href="/service" className="btn btn-primary btn-md">
           <Icon.Gear size={14} /> Change URL
         </Link>
       </div>

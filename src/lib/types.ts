@@ -10,7 +10,7 @@ export type MonthStatus = 'extracting' | 'completed';
 
 export interface Me {
   id: string;
-  email: string;
+  username: string;
   role: Role;
 }
 
@@ -26,6 +26,8 @@ export interface CountrySource {
   endpoint: string;
   method: string;
   output: string;
+  /** Download-only countries: a direct link to a month's file ({YYYY} {YY} {MM} {M} placeholders); '' when none */
+  fileUrl: string;
 }
 
 /** What the extraction service can do for one country (GET {service}/api/countries) */
@@ -43,6 +45,9 @@ export interface ExtractorInfo {
   hsCodeHint: string;
   hsCodeCount: number;
   testHsCodeCount: number;
+  /** The source's own limits (older services don't say; null: the service setting applies) */
+  concurrency?: number | null;
+  rateLimitPerMinute?: number;
 }
 
 /**
@@ -94,6 +99,8 @@ export interface CountryPatch {
   publishDay?: number;
   /** "YYYY-MM"; empty uses the extractor's default */
   startPeriod?: string;
+  /** Download-only: a direct link to the month's Excel/CSV, with {YYYY} {YY} {MM} {M} for the month */
+  fileUrl?: string;
 }
 
 /** One month's new status; null clears it (back to not done) */
@@ -104,7 +111,7 @@ export interface MonthChange {
 
 export interface AdminUser {
   id: string;
-  email: string;
+  username: string;
   role: Role;
   createdAt: string;
   lastSignInAt: string | null;
@@ -173,6 +180,8 @@ export interface ExportFile {
   origin: 'extracted' | 'uploaded';
   /** A month too big for one upload is stored in parts (_part1, _part2…); null for a whole month */
   part: number | null;
+  /** Who uploaded it (null for extracted files) */
+  uploadedBy: string | null;
 }
 
 /** A file in a share link, as it was when the link was made */
@@ -211,4 +220,22 @@ export interface PublicShare {
 export interface RunResponse {
   status: 'ACCEPTED';
   runId: string;
+}
+
+/** Extraction settings on the service (GET / PUT /api/settings); admins change them on the Settings page */
+export interface AppSettings {
+  maxConcurrentExtractions: number;
+  maxConcurrentPerCountry: number;
+  retryMaxAttempts: number;
+  retryDelayMs: number;
+  emptyStreakFlagAt: number;
+  maxUploadMb: number;
+}
+
+/** Per-run tuning on the extract form; anything left out uses the settings or the country's own limits */
+export interface RunOptions {
+  concurrency?: number;
+  rateLimitPerMinute?: number;
+  retryMaxAttempts?: number;
+  retryDelayMs?: number;
 }

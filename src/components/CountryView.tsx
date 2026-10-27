@@ -6,18 +6,19 @@ import { useApp } from '@/lib/store';
 import { useCountry, useCountryStatus, useExtractability } from '@/lib/hooks';
 import type { Country } from '@/lib/types';
 import { fmtRelative } from '@/lib/format';
-import { yearsFor } from '@/lib/months';
+import { addableYears, yearsFor } from '@/lib/months';
 import { extractHref } from './CountryAction';
 import { CountryStats, NextStepCard, RecentRuns, SourceInfo, UploadPanel } from './CountryPanels';
 import { MonthGrid, MonthLegend } from './MonthGrid';
 import { MonthEditor } from './MonthEditor';
 import { PageHead } from './PageHead';
-import { Badge, Button, CodeTag, Empty, Icon, LoadingPanel, Panel } from './ui';
+import { CountrySkeleton } from './PageSkeletons';
+import { Badge, Button, CodeTag, Empty, Icon, Menu, Panel } from './ui';
 
 /** Loads a country from the list and renders `children` with it, or a loading / not-found state */
 export function WithCountry({ code, children }: { code: string; children: (country: Country) => React.ReactNode }) {
   const country = useCountry(code);
-  if (country === undefined) return <LoadingPanel />;
+  if (country === undefined) return <CountrySkeleton />;
   if (country === null) {
     return (
       <Panel>
@@ -38,9 +39,10 @@ export function CountryView({ country }: { country: Country }) {
   const { isAdmin } = useApp();
   const extractability = useExtractability();
   const status = useCountryStatus(country);
-  const [extraYears, setExtraYears] = useState(0);
+  const [addedYears, setAddedYears] = useState<number[]>([]);
   const [editing, setEditing] = useState(false);
-  const years = yearsFor(country, extraYears);
+  const years = yearsFor(country, addedYears);
+  const addable = addableYears(country, years);
 
   const editMonths = () => {
     setEditing(true);
@@ -50,7 +52,6 @@ export function CountryView({ country }: { country: Country }) {
   return (
     <>
       <PageHead
-        back={{ href: '/', label: 'Dashboard' }}
         title={
           <span className="title-with-code">
             {country.name}
@@ -90,15 +91,11 @@ export function CountryView({ country }: { country: Country }) {
         i={3}
         className={editing ? 'panel-editing' : ''}
         title="Months"
-        desc={editing ? undefined : 'Months turn extracting when an extraction starts; mark them completed once the files are checked.'}
         actions={
-          editing ? (
-            <Badge tone="amber" dot>Editing</Badge>
-          ) : (
-            <Button size="sm" variant="secondary" icon={<Icon.Pencil size={13} />} onClick={() => setEditing(true)}>
-              Edit months
-            </Button>
-          )
+          // Stays while editing (disabled) so the card doesn't shift
+          <Button size="sm" variant="secondary" icon={<Icon.Pencil size={13} />} disabled={editing} onClick={() => setEditing(true)}>
+            {editing ? 'Editing' : 'Edit months'}
+          </Button>
         }
       >
         {editing ? (
@@ -107,10 +104,22 @@ export function CountryView({ country }: { country: Country }) {
           <MonthGrid country={country} years={years} />
         )}
         <div className="months-foot">
-          {!editing && <MonthLegend />}
-          <button type="button" className="text-btn" onClick={() => setExtraYears((n) => n + 1)}>
-            <Icon.Plus size={12} /> Show {years[years.length - 1] - 1}
-          </button>
+          <MonthLegend />
+          {addable.length > 0 && (
+            <Menu
+              label="Show another year"
+              width={160}
+              trigger={{
+                className: 'text-btn',
+                content: (
+                  <>
+                    <Icon.Plus size={12} /> Show another year
+                  </>
+                ),
+              }}
+              items={addable.map((y) => ({ label: String(y), onSelect: () => setAddedYears((prev) => [...prev, y]) }))}
+            />
+          )}
         </div>
       </Panel>
 

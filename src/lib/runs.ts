@@ -35,5 +35,3 @@ export const needsAttention = (r: Run) => r.status === 'FAILED' || r.status === 
 /** The months a run covers for one country (empty when it doesn't cover the country) */
 export const runPeriods = (run: Run, code: string) => run.params?.plans?.find((p) => p.countryCode === code)?.periods ?? [];
 
-/** Countries a run covers */
-export const runCountries = (run: Run) => (run.params?.plans ?? []).map((p) => p.countryCode);

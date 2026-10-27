@@ -11,6 +11,6 @@ export const POST = route<Ctx>(async (req, { params }) => {
   const user = await requireUser(req);
   const { code } = await params;
   const { changes } = parse(monthChangesSchema, await jsonBody(req));
-  const changed = await countries.setMonths(code, changes, user.email);
+  const changed = await countries.setMonths(code, changes, user.username);
   return Response.json({ changed, country: await countries.get(code) });
 });

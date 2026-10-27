@@ -5,15 +5,15 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { errorText, extractor } from '@/lib/api';
 import { useApp } from '@/lib/store';
-import type { Country, ExtractorInfo, TradeFlow } from '@/lib/types';
+import type { AppSettings, Country, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { fmtFlows, fmtMonth, fmtRange, plural } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { useExtractability } from '@/lib/hooks';
 import { SourceInfo } from './CountryPanels';
 import { MonthLegend, RecentMonths } from './MonthGrid';
-import { PageHead } from './PageHead';
 import { ServiceDown, SetupNeeded, useSetupProblem } from './ServiceNotice';
-import { Button, Empty, Field, Icon, MonthRangePicker, Panel, Segmented, Select, Skeleton, type MonthPreset } from './ui';
+import { ExtractSkeleton } from './PageSkeletons';
+import { Button, Empty, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, Select, type MonthPreset } from './ui';
 
 type Flow = 'ALL' | TradeFlow;
 type Mode = 'complete' | 'test';
@@ -60,6 +60,19 @@ function initialMonths(country: Country, params: URLSearchParams): [string, stri
   return due.length ? [due[0], due[due.length - 1]] : [latest, latest];
 }
 
+/** Per-run tuning fields; empty ones keep the default shown as the placeholder */
+type Tuning = Record<keyof RunOptions, string>;
+const NO_TUNING: Tuning = { concurrency: '', rateLimitPerMinute: '', retryMaxAttempts: '', retryDelayMs: '' };
+
+/** The extraction service's settings, for the defaults the tuning fields show (null: not loaded, or an older service) */
+function useServiceSettings(): AppSettings | null {
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  useEffect(() => {
+    extractor.settings().then((r) => setSettings(r.settings), () => setSettings(null));
+  }, []);
+  return settings;
+}
+
 function ExtractForm({ country, info, countrySelect }: { country: Country; info: ExtractorInfo; countrySelect: React.ReactNode }) {
   const { service, refreshActivity } = useApp();
   const router = useRouter();
@@ -72,6 +85,9 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   const [mode, setMode] = useState<Mode>('complete');
   const [hsOpen, setHsOpen] = useState(false);
   const [hsText, setHsText] = useState('');
+  const [tuneOpen, setTuneOpen] = useState(false);
+  const [tuning, setTuning] = useState<Tuning>(NO_TUNING);
+  const settings = useServiceSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -81,6 +97,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
     setMonths(next);
     setWhen(next[0] === next[1] ? 'month' : 'range');
     setFlow('ALL');
+    setTuning(NO_TUNING);
     setError('');
   }, [country.code]);
 
@@ -102,6 +119,26 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
   const unpublished = latest ? months.filter((p) => p > latest) : [];
   const beforeStart = country.startPeriod ? months.filter((p) => p < country.startPeriod!) : [];
 
+  // Defaults when a field is left empty: the source's own limits, else the service's settings
+  const tuningDefaults: Tuning = {
+    concurrency: String(info.concurrency ?? settings?.maxConcurrentPerCountry ?? ''),
+    rateLimitPerMinute: String(info.rateLimitPerMinute ?? 60),
+    retryMaxAttempts: String(settings?.retryMaxAttempts ?? ''),
+    retryDelayMs: settings ? String(settings.retryDelayMs / 1000) : '',
+  };
+  const options: RunOptions = {
+    concurrency: tuning.concurrency ? Number(tuning.concurrency) : undefined,
+    rateLimitPerMinute: tuning.rateLimitPerMinute ? Number(tuning.rateLimitPerMinute) : undefined,
+    retryMaxAttempts: tuning.retryMaxAttempts ? Number(tuning.retryMaxAttempts) : undefined,
+    retryDelayMs: tuning.retryDelayMs ? Number(tuning.retryDelayMs) * 1000 : undefined,
+  };
+  const tuned = Object.values(options).filter((v) => v !== undefined).length;
+  const tuningInvalid =
+    (options.concurrency !== undefined && (options.concurrency < 1 || options.concurrency > 20)) ||
+    (options.rateLimitPerMinute !== undefined && (options.rateLimitPerMinute < 1 || options.rateLimitPerMinute > 600)) ||
+    (options.retryMaxAttempts !== undefined && options.retryMaxAttempts > 10) ||
+    (options.retryDelayMs !== undefined && (options.retryDelayMs < 1000 || options.retryDelayMs > 60_000));
+
   async function run() {
     setBusy(true);
     setError('');
@@ -113,6 +150,7 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
         hsCodes: useCodes ? hsText.trim() : undefined,
         tradeType: flow,
         mode: effectiveMode,
+        options: tuned ? options : undefined,
       });
       refreshActivity();
       router.push(`/extractions/${runId}`);
@@ -195,36 +233,70 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
           </Field>
         </div>
 
-        <div className={`slide-panel ${hsOpen ? 'open' : ''}`}>
-          <button type="button" className="slide-toggle" aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
-            <span>
-              <span className="cell-strong">Specific HS codes</span>
-              <span className="cell-sub">{useCodes ? `${plural(codes.length, 'code')} instead of the data set` : 'Optional: extract only these codes instead of the data set'}</span>
-            </span>
-            <span className={`select-chevron ${hsOpen ? 'open' : ''}`}>
-              <Icon.ChevronDown />
-            </span>
+        {/* Rarely changed, so two small toggles; their fields open below */}
+        <div className="more-options">
+          <button type="button" className={`more-toggle ${hsOpen ? 'open' : ''}`} aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
+            Specific HS codes{useCodes ? ` · ${codes.length}` : ''}
+            <Icon.ChevronDown size={13} />
           </button>
-          <div className="slide-body" aria-hidden={!hsOpen}>
-            <div className="slide-inner">
-              <textarea
-                rows={3}
-                className="control textarea mono"
-                placeholder="Paste codes separated by commas, spaces or new lines, e.g. 0901, 090111"
-                value={hsText}
-                onChange={(e) => setHsText(e.target.value)}
-                spellCheck={false}
-                tabIndex={hsOpen ? 0 : -1}
-              />
-              <p className="field-help">{info.hsCodeHint}</p>
-            </div>
-          </div>
+          <button type="button" className={`more-toggle ${tuneOpen ? 'open' : ''}`} aria-expanded={tuneOpen} onClick={() => setTuneOpen((o) => !o)}>
+            Advanced options{tuned ? ` · ${tuned} changed` : ''}
+            <Icon.ChevronDown size={13} />
+          </button>
         </div>
+
+        {hsOpen && (
+          <div className="more-body">
+            <textarea
+              rows={3}
+              className="control textarea mono"
+              placeholder="Only these codes instead of the data set: paste them separated by commas, spaces or new lines, e.g. 0901, 090111"
+              value={hsText}
+              onChange={(e) => setHsText(e.target.value)}
+              spellCheck={false}
+              autoFocus
+            />
+            <p className="field-help">{info.hsCodeHint}</p>
+          </div>
+        )}
+
+        {tuneOpen && (
+          <div className="more-body">
+            <div className="tuning-grid">
+              <Field label="Parallel requests" htmlFor="tune-threads">
+                <NumberInput id="tune-threads" value={tuning.concurrency} onChange={(v) => setTuning({ ...tuning, concurrency: v })} placeholder={tuningDefaults.concurrency} unit="at once" min={1} max={20} />
+              </Field>
+              <Field label="Request rate" htmlFor="tune-rate">
+                <NumberInput id="tune-rate" value={tuning.rateLimitPerMinute} onChange={(v) => setTuning({ ...tuning, rateLimitPerMinute: v })} placeholder={tuningDefaults.rateLimitPerMinute} unit="per min" min={1} max={600} />
+              </Field>
+              <Field label="Retries" htmlFor="tune-retries">
+                <NumberInput id="tune-retries" value={tuning.retryMaxAttempts} onChange={(v) => setTuning({ ...tuning, retryMaxAttempts: v })} placeholder={tuningDefaults.retryMaxAttempts} unit="times" min={0} max={10} />
+              </Field>
+              <Field label="First retry after" htmlFor="tune-delay">
+                <NumberInput id="tune-delay" value={tuning.retryDelayMs} onChange={(v) => setTuning({ ...tuning, retryDelayMs: v })} placeholder={tuningDefaults.retryDelayMs} unit="sec" min={1} max={60} />
+              </Field>
+            </div>
+            <p className="field-help">
+              For this run only; empty fields keep the defaults shown. Faster rates can get blocked by some sources.{' '}
+              {tuned > 0 && (
+                <button type="button" className="text-btn" onClick={() => setTuning(NO_TUNING)}>
+                  Reset
+                </button>
+              )}
+            </p>
+          </div>
+        )}
       </div>
 
       {error && (
         <div className="note note-error" role="alert">
           <Icon.Alert /> <span>{error}</span>
+        </div>
+      )}
+      {!error && tuningInvalid && (
+        <div className="note note-error" role="alert">
+          <Icon.Alert />
+          <span>Advanced options are out of range: 1–20 parallel requests, 1–600 per minute, 0–10 retries, 1–60 seconds.</span>
         </div>
       )}
       {!error && completed.length > 0 && (
@@ -276,8 +348,14 @@ function ExtractForm({ country, info, countrySelect }: { country: Country; info:
             <dt>HS codes</dt>
             <dd>{useCodes ? plural(codes.length, 'custom code') : `${savedCount.toLocaleString()} ${effectiveMode}`}</dd>
           </div>
+          {tuned > 0 && (
+            <div>
+              <dt>Threads</dt>
+              <dd>{options.concurrency ?? tuningDefaults.concurrency} at once</dd>
+            </div>
+          )}
         </dl>
-        <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
+        <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
           Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
         </Button>
       </div>
@@ -325,23 +403,6 @@ function CountryMonths({ country }: { country: Country }) {
   );
 }
 
-function FormSkeleton() {
-  return (
-    <div className="extract-layout">
-      <section className="panel skeleton-rows">
-        <Skeleton height={40} radius={12} />
-        <Skeleton height={40} radius={12} />
-        <Skeleton height={40} radius={12} />
-        <Skeleton height={60} radius={12} />
-      </section>
-      <section className="panel skeleton-rows">
-        <Skeleton height={20} width={140} />
-        <Skeleton height={150} radius={12} />
-      </section>
-    </div>
-  );
-}
-
 function ExtractBody() {
   const { countries, service, extractors } = useApp();
   const extractability = useExtractability();
@@ -356,7 +417,7 @@ function ExtractBody() {
   const setupProblem = useSetupProblem();
 
   if (service.status === 'offline') return <ServiceDown />;
-  if (!countries || service.status === 'checking' || !extractors) return <FormSkeleton />;
+  if (!countries || service.status === 'checking' || !extractors) return <ExtractSkeleton />;
 
   if (requestedCountry?.kind === 'manual') {
     return (
@@ -419,7 +480,6 @@ function ExtractBody() {
 export function ExtractView() {
   return (
     <>
-      <PageHead title="Extract" sub="Pick a country and its months, then run. Each month's file is replaced; follow it live under Extractions." />
       <ExtractBody />
     </>
   );

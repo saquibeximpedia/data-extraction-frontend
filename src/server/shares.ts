@@ -77,7 +77,7 @@ async function getLive(id: string) {
  * here, so the bucket itself stays private.
  */
 export const shares = {
-  async create(input: { paths: string[]; title?: string; password?: string; expiresInDays?: number | null }, createdBy: string): Promise<Share> {
+  async create(input: { paths: string[]; title?: string; password?: string; expiresInDays?: number | null }, createdBy: string): Promise<Share & { reused: boolean }> {
     const paths = [...new Set(input.paths.map(safePath))];
 
     // Snapshot each file's name and size, which also proves it exists
@@ -98,16 +98,33 @@ export const shares = {
     const missing = paths.filter((p) => !found.has(p));
     if (missing.length) throw badRequest(`${missing.length === 1 ? 'This file no longer exists' : 'These files no longer exist'}: ${missing.join(', ')}`);
 
+    const expiresAt = input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString() : null;
+
+    // Sharing the same files again without a password gives back the person's live link for them
+    // (lasting at least as long as asked) instead of a second one. A password always makes a new
+    // link, since that password is the point of it.
+    if (!input.password) {
+      const key = [...paths].sort().join('\n');
+      const { data: mine } = await result(table().select('*').eq('created_by', createdBy).is('password_hash', null), 'find links');
+      const same = (mine as any[]).find((r) => !isExpired(r) && (r.files as SharedFile[]).map((f) => f.path).sort().join('\n') === key);
+      if (same) {
+        const longer = same.expires_at && (!expiresAt || expiresAt > same.expires_at) ? expiresAt : same.expires_at;
+        const patch = { expires_at: longer, ...(input.title?.trim() ? { title: input.title.trim() } : {}) };
+        const { data } = await result(table().update(patch).eq('id', same.id).select('*').single(), 'reuse link');
+        return { ...toShare(data), reused: true };
+      }
+    }
+
     const row = {
       id: crypto.randomBytes(16).toString('base64url'),
       title: input.title?.trim() || null,
       files: paths.map((p) => found.get(p)!),
       password_hash: input.password ? await hashPassword(input.password) : null,
-      expires_at: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString() : null,
+      expires_at: expiresAt,
       created_by: createdBy,
     };
     const { data } = await result(table().insert(row).select('*').single(), 'create link');
-    return toShare(data);
+    return { ...toShare(data), reused: false };
   },
 
   async list(): Promise<Share[]> {

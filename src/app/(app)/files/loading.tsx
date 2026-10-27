@@ -1,5 +1,5 @@
-import { ListPageSkeleton } from '@/components/PageSkeletons';
+import { FilesSkeleton } from '@/components/PageSkeletons';
 
 export default function Loading() {
-  return <ListPageSkeleton titleWidth={100} />;
+  return <FilesSkeleton />;
 }
