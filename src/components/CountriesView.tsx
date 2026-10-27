@@ -31,7 +31,7 @@ function CountryCard({ country, status, i }: { country: Country; status: Country
     <article className="country-card reveal" style={revealStyle(Math.min(i, 8))}>
       <div className="country-card-head">
         <span className="country-name">
-          <Link href={} className="country-card-link">
+          <Link href={`/countries/${country.code}`} className="country-card-link">
             {country.name}
           </Link>
           <CodeTag code={country.code} />
@@ -60,16 +60,20 @@ function CountryCard({ country, status, i }: { country: Country; status: Country
         </span>
         <div className="country-card-actions">
           {isAdmin && (
-            <Link href={} className="btn btn-ghost btn-sm btn-icon" aria-label={Error 0x80070006: The handle is invalid.} title="Edit details">
+            <Link href={`/countries/${country.code}/edit`} className="btn btn-ghost btn-sm btn-icon" aria-label="Edit details" title="Edit details">
               <Icon.Pencil size={14} />
             </Link>
           )}
           {isApi ? (
-            <Link href={extractHref(country.code, status.due)} className={}>
+            <Link
+              href={extractHref(country.code, status.due)}
+              className={`btn btn-sm ${ready ? 'btn-primary' : 'btn-secondary is-disabled'}`}
+              aria-disabled={!ready}
+            >
               <Icon.Play size={12} /> Extract
             </Link>
           ) : (
-            <Link href={} className="btn btn-sm btn-secondary">
+            <Link href={`/countries/${country.code}#upload`} className="btn btn-sm btn-secondary">
               <Icon.Upload size={13} /> Upload
             </Link>
           )}
