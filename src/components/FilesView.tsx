@@ -10,9 +10,11 @@ import { fmtDate, fmtMonth, fmtRelative, fmtSize, plural } from '@/lib/format';
 import { useAction, useChangedKeys } from '@/lib/hooks';
 import { latestPublished, MONTH_LABELS, monthState, nowPeriod, yearPeriods } from '@/lib/months';
 import { MarkCompletedButton, RemoveMonthsButton } from './CountryAction';
+import { ShareModal, SharesList } from './Shares';
 import { Badge, Button, CodeTag, ConfirmModal, Empty, FileIcon, FilterTabs, Icon, Menu, revealStyle, SearchInput, Skeleton, useToast, type MenuItem } from './ui';
 
 const RECENT = 'RECENT';
+const SHARES = 'SHARES';
 
 /** Supabase's free plan stores 1 GB; set NEXT_PUBLIC_STORAGE_LIMIT_MB for another plan */
 const STORAGE_LIMIT = (Number(process.env.NEXT_PUBLIC_STORAGE_LIMIT_MB) || 1024) * 1048576;
@@ -73,6 +75,7 @@ export function FilesView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string[] | null>(null);
+  const [toShare, setToShare] = useState<string[] | null>(null);
   const { busy: deleting, run } = useAction();
 
   const countryName = (code: string) => countries?.find((c) => c.code === code)?.name ?? code;
@@ -91,11 +94,11 @@ export function FilesView() {
     return map;
   }, [files]);
 
-  const view = params.get('country')?.toUpperCase() ?? RECENT;
+  const view = params.get('view') === 'shares' ? SHARES : (params.get('country')?.toUpperCase() ?? RECENT);
   const setView = (code: string) => {
     setYear(null);
     setQuery('');
-    router.replace(code === RECENT ? '/files' : `/files?country=${code}`, { scroll: false });
+    router.replace(code === RECENT ? '/files' : code === SHARES ? '/files?view=shares' : `/files?country=${code}`, { scroll: false });
   };
   const group = groups.find((g) => g.code === view);
 
@@ -153,6 +156,7 @@ export function FilesView() {
       icon: <Icon.Copy size={15} />,
       onSelect: () => navigator.clipboard?.writeText(f.relativePath).then(() => toast('ok', 'Path copied', f.relativePath)),
     },
+    { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare([f.relativePath]) },
     ...(f.countryCode ? [{ label: `Open ${countryName(f.countryCode)}`, icon: <Icon.Calendar size={15} />, href: `/countries/${f.countryCode}` }] : []),
     { label: 'Delete file', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
@@ -207,6 +211,9 @@ export function FilesView() {
   } else if (q) {
     head = { title: 'Search results', desc: `${plural(results.length, 'file')} match “${query.trim()}”`, visible: results.slice(0, 200) };
     body = results.length ? <ul className="file-list">{results.slice(0, 200).map((f) => fileRow(f, true))}</ul> : <Empty>No files match.</Empty>;
+  } else if (view === SHARES) {
+    head = { title: 'Shared links', desc: 'Links anyone can open to download files, without signing in', visible: [] };
+    body = <SharesList />;
   } else if (!group) {
     const recent = files.slice(0, 30);
     head = { title: 'Recent files', desc: `The latest ${recent.length} added or replaced, across every country`, visible: recent };
@@ -319,10 +326,14 @@ export function FilesView() {
           <StorageMeter used={sizeOf(files)} loading={loading} />
 
           <nav className="side-list">
-            <button type="button" className={`side-item ${!group && !q ? 'active' : ''}`} onClick={() => setView(RECENT)}>
+            <button type="button" className={`side-item ${view === RECENT && !q ? 'active' : ''}`} onClick={() => setView(RECENT)}>
               <Icon.Clock size={15} />
               <span className="side-name">Recent</span>
               <span className="side-meta">{loading ? '' : files.length.toLocaleString()}</span>
+            </button>
+            <button type="button" className={`side-item ${view === SHARES && !q ? 'active' : ''}`} onClick={() => setView(SHARES)}>
+              <Icon.Link size={15} />
+              <span className="side-name">Shared links</span>
             </button>
             <span className="side-label">Countries</span>
             {loading && <Skeleton height={32} radius={6} />}
@@ -375,12 +386,17 @@ export function FilesView() {
           <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={busy === 'selection'} onClick={() => download([...selected], 'selection')}>
             {selected.size === 1 ? 'Download' : 'Download zip'}
           </Button>
+          <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
+            Share link
+          </Button>
           <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
             Delete
           </Button>
           <Button variant="ghost" size="sm" iconOnly aria-label="Clear selection" icon={<Icon.X size={14} />} onClick={() => setSelected(new Set())} />
         </div>
       </div>
+
+      <ShareModal paths={toShare} onClose={() => setToShare(null)} />
 
       <ConfirmModal
         open={Boolean(toDelete)}

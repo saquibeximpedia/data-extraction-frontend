@@ -175,6 +175,38 @@ export interface ExportFile {
   part: number | null;
 }
 
+/** A file in a share link, as it was when the link was made */
+export interface SharedFile {
+  path: string;
+  /** What people see (an uploaded file's original name) */
+  name: string;
+  size: number;
+}
+
+/** A share link: anyone with /s/{id} can download its files (after its password, if it has one) */
+export interface Share {
+  id: string;
+  title: string | null;
+  files: SharedFile[];
+  hasPassword: boolean;
+  /** null: never expires */
+  expiresAt: string | null;
+  expired: boolean;
+  downloadCount: number;
+  lastDownloadAt: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** What the public link page gets; `files` stays empty while the link is locked */
+export interface PublicShare {
+  title: string | null;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  locked: boolean;
+  files: SharedFile[];
+}
+
 /** Response of POST {service}/api/extractions: runs start in the background */
 export interface RunResponse {
   status: 'ACCEPTED';

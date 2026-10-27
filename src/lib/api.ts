@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { AdminUser, Country, CountryPatch, ExportFile, ExtractorInfo, Me, MonthChange, Role, Run, RunLog, RunResponse, ServiceHealth } from './types';
+import type { AdminUser, Country, CountryPatch, ExportFile, ExtractorInfo, Me, MonthChange, PublicShare, Role, Run, RunLog, RunResponse, ServiceHealth, Share } from './types';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: any) {
@@ -93,12 +93,54 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 
+  shares: () => request<{ shares: Share[] }>('/api/shares').then((r) => r.shares),
+  /** A link anyone can open to download the files; expiresInDays null means it never expires */
+  createShare: (body: { paths: string[]; title?: string; password?: string; expiresInDays: number | null }) => request<Share>('/api/shares', json('POST', body)),
+  deleteShare: (id: string) => request<{ deleted: string }>(`/api/shares/${id}`, { method: 'DELETE' }),
+
   /** Stores a file downloaded from a source website under a country and month (uploaded straight to Storage) */
   upload: async (country: string, period: string, file: File) => {
     const target = await request<{ path: string; token: string; bucket: string }>('/api/files/upload', json('POST', { country, period, name: file.name }));
     const { error } = await supabase.storage.from(target.bucket).uploadToSignedUrl(target.path, target.token, file, { upsert: true });
     if (error) throw new ApiError(error.message, 502, {});
     return { path: target.path };
+  },
+};
+
+// ------------------------------------------------------------------ share links (no sign-in)
+
+/** The address people open for a share link */
+export const shareUrl = (id: string) => `${window.location.origin}/s/${id}`;
+
+async function publicSend(url: string, body?: unknown): Promise<Response> {
+  const res = await fetch(url, body === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error || `Request failed (HTTP ${res.status})`, res.status, data);
+  }
+  return res;
+}
+
+const sharePath = (id: string) => `/api/public/shares/${encodeURIComponent(id)}`;
+
+/** What the public /s/{id} page calls: it works for anyone with the link */
+export const publicShare = {
+  get: (id: string) => publicSend(sharePath(id)).then((r) => r.json() as Promise<PublicShare>),
+  unlock: (id: string, password: string) => publicSend(sharePath(id), { password }).then((r) => r.json() as Promise<PublicShare>),
+
+  /** One file through a short-lived signed link */
+  download: async (id: string, path: string, password?: string) => {
+    const { url } = await (await publicSend(`${sharePath(id)}/download`, { path, password })).json();
+    saveFrom(url);
+  },
+
+  /** Every file of the link as one zip */
+  downloadAll: async (id: string, password?: string) => {
+    const res = await publicSend(`${sharePath(id)}/download`, { password });
+    const name = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] ?? 'shared-files.zip';
+    const url = URL.createObjectURL(await res.blob());
+    saveFrom(url, name);
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
   },
 };
 

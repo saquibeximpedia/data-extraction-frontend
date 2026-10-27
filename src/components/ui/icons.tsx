@@ -22,6 +22,7 @@ import {
   Folder,
   Gear,
   Globe,
+  LinkSimple,
   List,
   LockSimple,
   MagnifyingGlass,
@@ -88,4 +89,5 @@ export const Icon = {
   X: icon(X),
   User: icon(User),
   List: icon(List),
+  Link: icon(LinkSimple),
 };

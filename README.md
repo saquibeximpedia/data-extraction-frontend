@@ -23,7 +23,7 @@ What a country needs next is worked out in one place (`src/lib/status.ts`): mont
 - **Country**: headline numbers, a **Next step** card, then every year with its months marked **completed**, **extracting** or **not done**. Click **Edit months** to paint them: pick a status, then click or drag across months, click a year for all of it, or shift-click to fill a span. A date range can be painted too. Nothing is saved until **Save changes**. The page also shows the source details, recent extractions, and, for download-only countries, the upload form, which can mark the month completed after uploading. Admins get **Edit details**.
 - **Extract**: country, one month or a date range, trade flow, data set, and a slide-down for specific HS codes. The months start as every due month (or come from the link, e.g. `/extract?country=ZAF&start=2026-07&end=2026-09`). There is a **Catch up** preset. Warnings appear for months that are already completed, waiting to be checked, or probably not published yet. While the service is offline, this page says so and offers **Check again**.
 - **Extractions**: what runs on the service now (progress, stop), then previous extractions from the database. Open one for live logs while it runs. After it ends, the page shows its results and next step: mark its months completed, or **Run again** with the same months if it didn't finish.
-- **Files**: countries in a sidebar with file counts and sizes. A country shows year tabs over a 12-month board, one card per month with its files and its status. An extracting month has **Mark completed** right on its card. You also get search, a filter for extracted or uploaded files, a "Recent" view, and multi-select to download as one zip or delete.
+- **Files**: countries in a sidebar with file counts and sizes. A country shows year tabs over a 12-month board, one card per month with its files and its status. An extracting month has **Mark completed** right on its card. You also get search, a filter for extracted or uploaded files, a "Recent" view, and multi-select to download as one zip, delete, or **share**. **Share link** (in the selection bar, or a file's menu) makes a link anyone can open at `/s/<id>` without signing in, with an optional password and an expiry (1, 7 or 30 days, or never). **Shared links** in the sidebar lists every link with its download count, to copy or remove it.
 - **Settings**: the extraction service URL for this browser (e.g. `http://localhost:3000` when you run it yourself), with a connection test.
 - **Admin** (admins only): **Users** (new user, role, password and delete, all from the list) and **Countries** (details and links; add or remove download-only countries).
 
@@ -68,6 +68,9 @@ Every route needs `Authorization: Bearer <Supabase access token>`. The client in
 | `GET /api/files` · `GET /api/files/url?path=` | all | Stored files; a 5-minute signed download link |
 | `POST /api/files/zip` · `POST /api/files/delete` | all | `{ paths }` → one zip / delete |
 | `POST /api/files/upload` | all | `{ country, period, name }` → a one-time signed upload; the browser uploads straight to Storage |
+| `GET /api/shares` · `POST /api/shares` · `DELETE /api/shares/:id` | all | Share links: list; `{ paths, title?, password?, expiresInDays? }` → a new link (`expiresInDays`: 1–365 or `null` for never, default 7); remove a link |
+| `GET/POST /api/public/shares/:id` | **anyone** | A link's title and expiry, plus its files once `{ password }` is right (or straight away without one) |
+| `POST /api/public/shares/:id/download` | **anyone** | `{ password?, path? }` → `{ url }` for one of the link's files, or all of them as a zip |
 | `GET/POST /api/admin/users` · `PATCH/DELETE /api/admin/users/:id` | admin | Accounts |
 
 ## Layout
