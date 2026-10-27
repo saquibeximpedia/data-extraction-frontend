@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { AppProvider } from '@/lib/store';
-import { ToastProvider, themeInitScript } from '@/components/ui';
+import { themeInitScript, ToastProvider } from '@/components/ui';
 import './globals.css';
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -20,9 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <AppProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </AppProvider>
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

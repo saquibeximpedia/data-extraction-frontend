@@ -1,7 +1,6 @@
-'use client';
+import { ServiceConnection } from '@/modules/service/components/ServiceConnection';
 
-import { ServiceView } from '@/components/ServiceView';
-
+/** Where this browser finds the extraction service, and whether it answers */
 export default function ServicePage() {
-  return <ServiceView />;
+  return <ServiceConnection />;
 }

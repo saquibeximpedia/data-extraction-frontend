@@ -1,4 +1,4 @@
-import { FilesSkeleton } from '@/components/PageSkeletons';
+import { FilesSkeleton } from '@/components/skeletons';
 
 export default function Loading() {
   return <FilesSkeleton />;

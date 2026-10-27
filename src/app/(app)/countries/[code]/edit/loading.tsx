@@ -1,4 +1,4 @@
-import { FormPageSkeleton } from '@/components/PageSkeletons';
+import { FormPageSkeleton } from '@/components/skeletons';
 
 export default function Loading() {
   return <FormPageSkeleton />;

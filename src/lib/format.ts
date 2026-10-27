@@ -1,6 +1,14 @@
+// Pages render on the server and again in the browser, so numbers and month names use one fixed
+// locale (both sides must agree). Times depend on the browser's time zone: show them with <When>.
+const LOCALE = 'en-US';
+const NUMBER = new Intl.NumberFormat(LOCALE);
+
+/** 12345 -> "12,345" */
+export const fmtNumber = (n: number) => NUMBER.format(n);
+
 /** plural(3, 'file') -> "3 files", plural(2, 'country') -> "2 countries" */
 export const plural = (n: number, word: string) =>
-  `${n.toLocaleString()} ${n === 1 ? word : /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`}`;
+  `${fmtNumber(n)} ${n === 1 ? word : /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`}`;
 
 /** "IMPORT" -> "Import", "COMPLETED" -> "Completed" */
 export const capitalize = (word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
@@ -15,11 +23,11 @@ export function fmtDate(value?: string | null): string {
 /** "2026-08" -> "Aug 2026" */
 export function fmtMonth(period: string): string {
   const [y, m] = period.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+  return new Date(y, m - 1, 1).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' });
 }
 
 /** "2026-08" -> "Aug" */
-const fmtMonthOnly = (period: string) => new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)) - 1, 1).toLocaleDateString(undefined, { month: 'short' });
+const fmtMonthOnly = (period: string) => new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)) - 1, 1).toLocaleDateString(LOCALE, { month: 'short' });
 
 /** "3 min ago", "2 h ago", "yesterday"; falls back to the date after a week */
 export function fmtRelative(value?: string | null): string {

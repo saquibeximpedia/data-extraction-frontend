@@ -1,7 +1,9 @@
-'use client';
+import { requireUser } from '@/modules/auth/session';
+import { ExtractionsList } from '@/modules/extractions/components/ExtractionsList';
+import { runs } from '@/modules/extractions/queries';
 
-import { ExtractionsList } from '@/components/ExtractionsView';
-
-export default function ExtractionsPage() {
-  return <ExtractionsList />;
+/** What runs now on the service, then the latest extractions from the database */
+export default async function ExtractionsPage() {
+  await requireUser();
+  return <ExtractionsList history={await runs.list(50)} />;
 }

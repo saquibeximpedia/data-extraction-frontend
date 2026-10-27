@@ -1,5 +1,5 @@
 import type { Tone } from '@/components/ui/badge';
-import { describePlan, fmtDuration, plural } from './format';
+import { describePlan, fmtDuration, plural, fmtNumber } from './format';
 import type { Run } from './types';
 
 // Helpers for extraction runs, shared by every page that lists or shows them
@@ -10,7 +10,7 @@ export const isRunning = (run: Run) => run.status === 'RUNNING';
 
 export const describeRun = (run: Run) => run.params?.plans?.map(describePlan).join('; ') || 'Extraction';
 
-export const fmtRecords = (run: Run) => (run.stats.records === undefined ? '—' : run.stats.records.toLocaleString());
+export const fmtRecords = (run: Run) => (run.stats.records === undefined ? '—' : fmtNumber(run.stats.records));
 
 export const timeTaken = (run: Run) => (run.finishedAt ? fmtDuration(run.startedAt, run.finishedAt) : '—');
 
@@ -35,3 +35,17 @@ export const needsAttention = (r: Run) => r.status === 'FAILED' || r.status === 
 /** The months a run covers for one country (empty when it doesn't cover the country) */
 export const runPeriods = (run: Run, code: string) => run.params?.plans?.find((p) => p.countryCode === code)?.periods ?? [];
 
+
+/** History with each live run's fresher copy on top; live runs the history hasn't seen yet come first */
+export function mergeRuns(history: Run[], live: Run[]): Run[] {
+  const byId = new Map(live.map((r) => [r.id, r]));
+  const fresh = live.filter((r) => !history.some((h) => h.id === r.id));
+  return [...fresh, ...history.map((h) => byId.get(h.id) ?? h)];
+}
+
+/** The extract form for a country, with its months filled in when given */
+export function extractHref(code: string, periods: string[] = []): string {
+  if (!periods.length) return `/extract?country=${code}`;
+  const sorted = [...periods].sort();
+  return `/extract?country=${code}&start=${sorted[0]}&end=${sorted[sorted.length - 1]}`;
+}

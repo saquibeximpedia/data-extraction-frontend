@@ -1,16 +1,9 @@
-'use client';
+import { requireAdmin } from '@/modules/auth/session';
+import { UsersTable } from '@/modules/users/components/UsersTable';
+import { listUsers } from '@/modules/users/queries';
 
-import { useApp } from '@/lib/store';
-import { UsersList } from '@/components/AdminView';
-import { Empty, Panel } from '@/components/ui';
-
-export default function UsersPage() {
-  const { isAdmin } = useApp();
-  return isAdmin ? (
-    <UsersList />
-  ) : (
-    <Panel>
-      <Empty>Only admins can manage users.</Empty>
-    </Panel>
-  );
+/** Every account (admins only) */
+export default async function UsersPage() {
+  const me = await requireAdmin();
+  return <UsersTable users={await listUsers()} meId={me.id} />;
 }

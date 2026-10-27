@@ -1,5 +1,7 @@
 'use client';
 
+import { fmtNumber } from '@/lib/format';
+
 export interface FilterOption<T extends string> {
   value: T;
   label: string;
@@ -24,7 +26,7 @@ export function FilterTabs<T extends string>({
       {options.map((o) => (
         <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="filter-tab" onClick={() => onChange(o.value)}>
           {o.label}
-          {o.count !== undefined && <span className="filter-count">{o.count.toLocaleString()}</span>}
+          {o.count !== undefined && <span className="filter-count">{fmtNumber(o.count)}</span>}
         </button>
       ))}
     </div>

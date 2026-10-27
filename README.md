@@ -1,6 +1,6 @@
 # Trade Data Web App (Next.js)
 
-The app people use: sign-in, countries and their months, extraction history, files, and accounts. Its own server routes (`src/app/api`) read and write Supabase with the service-role key.
+The app people use: sign-in, countries and their months, extraction history, files, and accounts. Pages are server components that read Supabase directly (service-role key, on the server only); changes go through server actions.
 
 Extracting is done by a separate **extraction service**, the Node backend in `../backend`. The browser calls that service directly, and only for extracting and live extractions. Everything else keeps working while the service is offline.
 
@@ -56,38 +56,44 @@ npm run create-admin -- --username admin --password 'a-long-password'   # first 
 
 Run `../backend/supabase/schema.sql` in the Supabase SQL editor, then start the extraction service once: it publishes its countries to the database, and the dashboard lists them from there. Turn off public sign-ups in Supabase (**Authentication → Sign In / Providers**) so only admins create accounts.
 
-## API (this app)
+## How data moves
 
-Every route needs `Authorization: Bearer <Supabase access token>`. The client in `src/lib/api.ts` adds it.
+- **Sign-in** is the `signIn` server action: it finds the account by username and keeps the Supabase session in cookies. Accounts made here get `{username}@users.invalid` as their Supabase email, which never receives mail; older accounts with a real email use the part before the `@`. `src/proxy.ts` refreshes the session on every request and sends anyone without one to `/login`.
+- **Reading**: each page is a server component that checks the session and reads Supabase itself (`modules/*/queries.ts`), so it arrives with its data.
+- **Changing**: forms call server actions (`modules/*/actions.ts`). Each checks the session (and role), validates with zod, and refreshes the pages' data. Failures come back as `{ ok: false, error }`.
+- **Live**: the browser talks to the extraction service directly (health, live runs, logs, extract, stop). `modules/service/store.tsx` polls it, and refreshes the page's data when an extraction ends.
+
+Two route handlers remain, for what an action can't send back (a file):
 
 | Method & path | Who | Purpose |
 |---|---|---|
-| `POST /api/auth/sign-in` | **anyone** | `{ username, password }` → session tokens for supabase-js. People sign in with a username. Accounts made here get `{username}@users.invalid` as their Supabase email, which never receives mail. Older accounts with a real email use the part before the `@` |
-| `GET /api/me` | all | The signed-in user (username) and role |
-| `GET /api/countries` | all | Countries with source, settings, completed and extracting months |
-| `POST /api/countries/:code/months` | all | `{ changes: [{ period, status }] }`; `status` is `completed`, `extracting` or `null` (clears) |
-| `POST /api/countries` · `PATCH/DELETE /api/countries/:code` | admin | Add a download-only country; edit details; remove a download-only country |
-| `GET /api/runs?limit=&country=` · `GET /api/runs/:id` | all | Extraction history |
-| `GET /api/files` · `GET /api/files/url?path=` | all | Stored files; a 5-minute signed download link |
-| `POST /api/files/zip` · `POST /api/files/delete` | all | `{ paths }` → one zip / delete |
-| `POST /api/files/upload` | all | `{ country, period, name }` → a one-time signed upload for any country; the browser uploads straight to Storage |
-| `POST /api/countries/:code/fetch` | all | `{ period }` → downloads the month's file from a download-only country's direct file link and stores it |
-| `GET /api/shares` · `POST /api/shares` · `DELETE /api/shares/:id` | all | Share links: list; `{ paths, title?, password?, expiresInDays? }` → a new link (`expiresInDays`: 1–365 or `null` for never, default 7); remove a link |
-| `GET/POST /api/public/shares/:id` | **anyone** | A link's title and expiry, plus its files once `{ password }` is right (or straight away without one) |
+| `POST /api/files/zip` | signed in | `{ paths }` → the files as one zip |
 | `POST /api/public/shares/:id/download` | **anyone** | `{ password?, path? }` → `{ url }` for one of the link's files, or all of them as a zip |
-| `GET/POST /api/admin/users` · `PATCH/DELETE /api/admin/users/:id` | admin | Accounts |
 
 ## Layout
 
+Each feature is a module with its own server queries, server actions and components. A component lives in its module when only that module uses it; one shared between modules goes in `src/components`, and primitives in `src/components/ui`.
+
 ```
 src/
-├── app/
-│   ├── api/          # Server routes (service-role Supabase): me, countries, months, runs, files, admin
-│   ├── login/        # Sign-in
-│   └── (app)/        # Dashboard, countries/[code], extract, extractions (+ [id]), files, settings, admin
-├── server/           # Server-only code for the routes: supabase, http (auth, errors), countries, runs, files, users
-├── components/       # Page sections, plus shared pieces: CountryAction (next-step buttons), RunParts (run status,
-│                     #   progress, stop, files), ServiceNotice; components/ui/ holds the primitives (Panel, StatTiles…)
-└── lib/              # api.ts (this app's API + the extraction service), store.tsx (global state), status.ts (each
-                      #   country's next step), runs.ts, months.ts, format.ts, hooks.ts (useAction, useSetMonths…), types
+├── proxy.ts                # Session refresh, and the redirect to /login
+├── app/                    # Routes only: each page fetches its data and lays out module components
+│   ├── (app)/              # Signed-in pages: dashboard, countries, extract, extractions, files, users, settings, service
+│   ├── login/ · s/[id]/    # Sign-in; public share links
+│   └── api/                # The two file downloads above
+├── modules/
+│   ├── auth/               # session.ts (current user, requireUser/authorize), actions (sign in/out), setup checks, LoginForm
+│   ├── countries/          # queries, actions (months, details), status.ts (each country's next step), table, overview, months editor, form
+│   ├── extract/            # The extract form
+│   ├── extractions/        # Run history queries; list, detail, live logs, files a run saved
+│   ├── files/              # Storage queries, actions (delete, upload, fetch from source); file browser, upload, share modals
+│   ├── shares/             # Share link queries and actions; the public share page
+│   ├── service/            # The extraction service: client.ts (browser calls), store.tsx (health, live runs), connection page
+│   ├── settings/           # Extraction settings on the service
+│   └── users/              # Accounts: queries, actions, table
+├── components/             # Shared between modules: header, month actions (mark completed / remove), run progress,
+│   │                       #   source info, country upload, service notices, step card, skeletons
+│   └── ui/                 # Primitives: Button, Panel, Menu, Modal, Select, When (times in the reader's time zone)…
+└── lib/                    # Shared helpers: supabase clients, http (errors, validation, throttling), action results,
+                            #   format, months, runs, download, hooks, types
 ```

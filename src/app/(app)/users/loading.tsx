@@ -1,4 +1,4 @@
-import { UsersSkeleton } from '@/components/PageSkeletons';
+import { UsersSkeleton } from '@/components/skeletons';
 
 export default function Loading() {
   return <UsersSkeleton />;

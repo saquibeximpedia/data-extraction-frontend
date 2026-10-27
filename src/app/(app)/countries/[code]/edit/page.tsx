@@ -1,9 +1,32 @@
-'use client';
+import { notFound } from 'next/navigation';
+import { Panel, When } from '@/components/ui';
+import { requireAdmin } from '@/modules/auth/session';
+import { EditCountryForm } from '@/modules/countries/components/CountryForm';
+import { countries } from '@/modules/countries/queries';
 
-import { useParams } from 'next/navigation';
-import { CountryEditor } from '@/components/AdminView';
+/** A country's details (admins only) */
+export default async function EditCountryPage({ params }: { params: Promise<{ code: string }> }) {
+  const { code } = await params;
+  await requireAdmin();
+  const country = await countries.find(code);
+  if (!country) notFound();
 
-export default function EditCountryPage() {
-  const { code } = useParams<{ code: string }>();
-  return <CountryEditor code={code} />;
+  return (
+    <Panel
+      i={1}
+      title={`${country.name} details`}
+      desc={
+        country.updatedAt ? (
+          <>
+            Edited <When value={country.updatedAt} as="relative" />
+            {country.updatedBy ? ` by ${country.updatedBy}` : ''}
+          </>
+        ) : (
+          'Links and details users see on the country page.'
+        )
+      }
+    >
+      <EditCountryForm key={country.code} country={country} />
+    </Panel>
+  );
 }

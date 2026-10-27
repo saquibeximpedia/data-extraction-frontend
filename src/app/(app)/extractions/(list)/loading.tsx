@@ -1,4 +1,4 @@
-import { ExtractionsSkeleton } from '@/components/PageSkeletons';
+import { ExtractionsSkeleton } from '@/components/skeletons';
 
 export default function Loading() {
   return <ExtractionsSkeleton />;
