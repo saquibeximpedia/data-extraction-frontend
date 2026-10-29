@@ -57,7 +57,7 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
         </div>
         <div className="inline-form">
           {codes.map(([code, name]) => (
-            <Link key={code} href={`/files?country=${code}`} className="btn btn-ghost btn-sm">
+            <Link key={code} href={files.every((p) => p.startsWith('_test/')) ? `/files?test=${code}` : `/files?country=${code}`} className="btn btn-ghost btn-sm">
               {codes.length > 1 ? `All ${name} files` : 'See all files'} <Icon.ChevronRight size={13} />
             </Link>
           ))}

@@ -69,7 +69,7 @@ export async function jsonBody(req: Request): Promise<unknown> {
 }
 
 /** A zip the browser saves under `name` */
-export const zipResponse = (zip: Uint8Array, name: string) =>
+export const zipResponse = (zip: ReadableStream<Uint8Array>, name: string) =>
   new Response(zip as BodyInit, { headers: { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' } });
 
 type Handler<C> = (req: Request, ctx: C) => Promise<Response>;

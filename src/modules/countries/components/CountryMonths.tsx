@@ -1,66 +1,73 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { MonthLegend } from '@/components/months';
-import { Button, Icon, Menu, Panel } from '@/components/ui';
-import { addableYears, yearsFor } from '@/lib/months';
+import { ConfirmModal, Field, Icon, Panel } from '@/components/ui';
+import { yearProblem, yearsFor } from '@/lib/months';
 import type { Country } from '@/lib/types';
-import { MonthEditor } from './MonthEditor';
 import { MonthGrid } from './MonthGrid';
 
-/** Opens the months in edit mode, e.g. from the next step's "Change only some" */
-const EDIT_HASH = '#edit-months';
-
-/** Every year of a country's months; Edit months paints them, and earlier years can be shown */
-export function CountryMonths({ country, i = 3 }: { country: Country; i?: number }) {
-  const [addedYears, setAddedYears] = useState<number[]>([]);
-  const [editing, setEditing] = useState(false);
-  const years = yearsFor(country, addedYears);
-  const addable = addableYears(country, years);
-
-  useEffect(() => {
-    const open = () => {
-      if (window.location.hash !== EDIT_HASH) return;
-      setEditing(true);
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-      document.getElementById('months')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-    open();
-    window.addEventListener('hashchange', open);
-    return () => window.removeEventListener('hashchange', open);
-  }, []);
+/** Shows an earlier year: the year is typed in a dialog */
+function AddYear({ country, shown, onAdd }: { country: Country; shown: number[]; onAdd: (year: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const problem = yearProblem(country, shown, input);
+  const close = () => {
+    setOpen(false);
+    setInput('');
+  };
+  const add = () => {
+    if (problem) return;
+    onAdd(Number(input));
+    close();
+  };
 
   return (
-    <Panel
-      id="months"
-      i={i}
-      className={editing ? 'panel-editing' : ''}
-      title="Months"
-      actions={
-        // Stays while editing (disabled) so the card doesn't shift
-        <Button size="sm" variant="secondary" icon={<Icon.Pencil size={13} />} disabled={editing} onClick={() => setEditing(true)}>
-          {editing ? 'Editing' : 'Edit months'}
-        </Button>
-      }
-    >
-      {editing ? <MonthEditor key={country.code} country={country} years={years} onDone={() => setEditing(false)} /> : <MonthGrid country={country} years={years} />}
+    <>
+      <button type="button" className="text-btn" onClick={() => setOpen(true)}>
+        <Icon.Plus size={12} /> Show another year
+      </button>
+      <ConfirmModal
+        open={open}
+        onClose={close}
+        onConfirm={add}
+        title="Show another year"
+        confirmVariant="primary"
+        confirmLabel="Show year"
+        confirmDisabled={Boolean(problem)}
+        description={
+          <div className="modal-form">
+            <Field label="Year" htmlFor="add-year">
+              <input
+                id="add-year"
+                className="control"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder={String(Math.min(...shown) - 1)}
+                value={input}
+                onChange={(e) => setInput(e.target.value.replace(/\D/g, ''))}
+                autoFocus
+              />
+              {input && problem && <p className="field-help">{problem}</p>}
+            </Field>
+          </div>
+        }
+      />
+    </>
+  );
+}
+
+/** Every year of a country's months: right-click a month (or a Ctrl+click selection) to set its status */
+export function CountryMonths({ country, i = 3 }: { country: Country; i?: number }) {
+  const [addedYears, setAddedYears] = useState<number[]>([]);
+  const years = yearsFor(country, addedYears);
+
+  return (
+    <Panel id="months" i={i} title="Months" desc="Right-click a month to set its status. Ctrl+click (⌘ on Mac) or Shift+click to select several.">
+      <MonthGrid country={country} years={years} />
       <div className="months-foot">
         <MonthLegend />
-        {addable.length > 0 && (
-          <Menu
-            label="Show another year"
-            width={160}
-            trigger={{
-              className: 'text-btn',
-              content: (
-                <>
-                  <Icon.Plus size={12} /> Show another year
-                </>
-              ),
-            }}
-            items={addable.map((y) => ({ label: String(y), onSelect: () => setAddedYears((prev) => [...prev, y]) }))}
-          />
-        )}
+        <AddYear country={country} shown={years} onAdd={(y) => setAddedYears((prev) => [...prev, y])} />
       </div>
     </Panel>
   );

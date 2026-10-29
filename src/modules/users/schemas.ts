@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { normalizeUsername, USERNAME_RE } from '@/lib/username';
 
-const password = z.string().min(8, 'Use at least 8 characters');
+export const password = z.string().min(8, 'Use at least 8 characters').max(200);
 const role = z.enum(['admin', 'user']);
 
 export const createUserSchema = z.object({

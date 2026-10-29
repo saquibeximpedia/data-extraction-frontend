@@ -26,6 +26,27 @@ export async function saveResponse(url: string, body: unknown, fallbackName: str
   setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
+/**
+ * Has the browser save a POSTed zip as a normal download (streamed to disk, with its progress bar)
+ * instead of holding it in the page: the files are checked first, so problems still show here.
+ */
+async function saveZip(url: string, paths: string[]): Promise<void> {
+  const check = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, check: true }) });
+  if (!check.ok) {
+    const data = await check.json().catch(() => ({}));
+    throw new AppError(data.error || `Request failed (HTTP ${check.status})`, check.status, data);
+  }
+  // The answer is an attachment, so the hidden frame never shows anything
+  const frame = Object.assign(document.createElement('iframe'), { name: `zip-${Date.now()}`, hidden: true });
+  const form = Object.assign(document.createElement('form'), { method: 'POST', action: url, target: frame.name });
+  form.appendChild(Object.assign(document.createElement('input'), { type: 'hidden', name: 'paths', value: JSON.stringify(paths) }));
+  document.body.append(frame, form);
+  form.submit();
+  form.remove();
+  // Long enough for the download to start; the frame then has nothing left to do
+  setTimeout(() => frame.remove(), 60_000);
+}
+
 /** Downloads stored files: one through a short-lived signed link, several as one zip. `busy` is the key being downloaded. */
 export function useDownload() {
   const toast = useToast();
@@ -35,7 +56,7 @@ export function useDownload() {
     setBusy(key);
     try {
       if (paths.length === 1) saveFrom(await unwrap(fileUrl(paths[0])));
-      else await saveResponse('/api/files/zip', { paths }, 'trade-data.zip');
+      else await saveZip('/api/files/zip', paths);
     } catch (err) {
       toast('err', 'Could not download', errorText(err));
     } finally {

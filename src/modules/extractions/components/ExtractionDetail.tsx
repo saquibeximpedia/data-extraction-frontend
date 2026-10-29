@@ -6,7 +6,7 @@ import { MarkCompletedButton, RemoveMonthsButton } from '@/components/month-acti
 import { useProgress } from '@/components/run-progress';
 import { ExtractionSkeleton } from '@/components/skeletons';
 import { StepCard } from '@/components/step-card';
-import { Badge, Button, Empty, Icon, Panel, ProgressBar, StatTiles, useToast, When } from '@/components/ui';
+import { Button, Empty, Icon, Panel, ProgressBar, StatTiles, useToast, When } from '@/components/ui';
 import { fmtMonth, fmtMs, fmtNumber, fmtRange, fmtTime, plural } from '@/lib/format';
 import { describeRun, extractHref, fmtRecords, isRunning, requestCount, runNotes, runPeriods, timeTaken } from '@/lib/runs';
 import type { Country, ExportFile, Run, RunLog } from '@/lib/types';
@@ -190,11 +190,8 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
 
         <div className="run-drawer-stats-panel detail-stats">
           <div className="stats-panel-head">
-            <div className="stats-panel-title">
-              <Badge tone="green" live>
-                Live metrics
-              </Badge>
-            </div>
+            {/* The status badge in the header already says it is running */}
+            <span className="stats-panel-title">Live metrics</span>
             <span className="stats-panel-pct">{p.pct}%</span>
           </div>
           <ProgressBar pct={p.pct} />

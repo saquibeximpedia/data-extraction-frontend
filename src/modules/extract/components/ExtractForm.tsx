@@ -9,6 +9,7 @@ import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/
 import { errorText } from '@/lib/result';
 import type { AppSettings, Country, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
+import { BulkLinksModal } from './BulkLinksModal';
 import { useApp } from '@/modules/service/store';
 
 type Flow = 'ALL' | TradeFlow;
@@ -94,7 +95,22 @@ export function FormHead({ countrySelect }: { countrySelect: React.ReactNode }) 
 }
 
 /** Months, flows, data set and per-run options for one country; Run starts it and opens its page */
-export function ExtractForm({ country, info, requested, countrySelect }: { country: Country; info: ExtractorInfo; requested: RequestedMonths; countrySelect: React.ReactNode }) {
+export function ExtractForm({
+  country,
+  info,
+  requested,
+  countrySelect,
+  bulk,
+  onBulk,
+}: {
+  country: Country;
+  info: ExtractorInfo;
+  requested: RequestedMonths;
+  countrySelect: React.ReactNode;
+  /** Links to the source's monthly files instead of extracting (countries with bulkDownload) */
+  bulk: boolean;
+  onBulk: (on: boolean) => void;
+}) {
   const { service, refreshLiveRuns } = useApp();
   const router = useRouter();
   const isProd = Boolean(service.health?.isProd);
@@ -110,6 +126,7 @@ export function ExtractForm({ country, info, requested, countrySelect }: { count
   const settings = useServiceSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showLinks, setShowLinks] = useState(false);
 
   const pickWhen = (value: When) => {
     setWhen(value);
@@ -227,132 +244,177 @@ export function ExtractForm({ country, info, requested, countrySelect }: { count
           )}
         </div>
 
-        <div className="extract-grid">
-          <Field label="Trade flow">
-            <Segmented<Flow>
-              label="Trade flow"
-              value={flow}
-              onChange={setFlow}
+        {info.bulkDownload && (
+          <Field label="Method">
+            <Segmented<'api' | 'bulk'>
+              label="Method"
+              value={bulk ? 'bulk' : 'api'}
+              onChange={(v) => onBulk(v === 'bulk')}
               options={[
-                { value: 'ALL', label: 'Both' },
-                { value: 'IMPORT', label: 'Import', disabled: !info.tradeTypes.includes('IMPORT') },
-                { value: 'EXPORT', label: 'Export', disabled: !info.tradeTypes.includes('EXPORT') },
+                { value: 'api', label: 'API extraction' },
+                { value: 'bulk', label: 'Bulk file links' },
               ]}
             />
+            <p className="field-help">{bulk ? info.bulkDownload.description : 'The extraction service fetches the saved codes from the API and stores the files.'}</p>
           </Field>
-
-          <Field label="Data set">
-            <Segmented<Mode>
-              label="Data set"
-              value={effectiveMode}
-              onChange={setMode}
-              options={[
-                { value: 'complete', label: `Complete · ${fmtNumber(info.hsCodeCount)}` },
-                { value: 'test', label: `Test · ${fmtNumber(info.testHsCodeCount)}`, disabled: isProd || !info.testHsCodeCount },
-              ]}
-            />
-          </Field>
-        </div>
-
-        {/* Rarely changed, so two small toggles; their fields open below */}
-        <div className="more-options">
-          <button type="button" className={`more-toggle ${hsOpen ? 'open' : ''}`} aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
-            Specific HS codes{useCodes ? ` · ${codes.length}` : ''}
-            <Icon.ChevronDown size={13} />
-          </button>
-          <button type="button" className={`more-toggle ${tuneOpen ? 'open' : ''}`} aria-expanded={tuneOpen} onClick={() => setTuneOpen((o) => !o)}>
-            Advanced options{tuned ? ` · ${tuned} changed` : ''}
-            <Icon.ChevronDown size={13} />
-          </button>
-        </div>
-
-        {hsOpen && (
-          <div className="more-body">
-            <textarea
-              rows={3}
-              className="control textarea mono"
-              placeholder="Only these codes instead of the data set: paste them separated by commas, spaces or new lines, e.g. 0901, 090111"
-              value={hsText}
-              onChange={(e) => setHsText(e.target.value)}
-              spellCheck={false}
-              autoFocus
-            />
-            <p className="field-help">{info.hsCodeHint}</p>
-          </div>
         )}
 
-        {tuneOpen && (
-          <div className="more-body">
-            <div className="tuning-grid">
-              {tuningField('concurrency', 'Parallel requests', 'at once', 1, 20)}
-              {tuningField('rateLimitPerMinute', 'Request rate', 'per min', 1, 600)}
-              {tuningField('retryMaxAttempts', 'Retries', 'times', 0, 10)}
-              {tuningField('retryDelayMs', 'First retry after', 'sec', 1, 60)}
+        {!bulk && (
+          <>
+            <div className="extract-grid">
+              <Field label="Trade flow">
+                <Segmented<Flow>
+                  label="Trade flow"
+                  value={flow}
+                  onChange={setFlow}
+                  options={[
+                    { value: 'ALL', label: 'Both' },
+                    { value: 'IMPORT', label: 'Import', disabled: !info.tradeTypes.includes('IMPORT') },
+                    { value: 'EXPORT', label: 'Export', disabled: !info.tradeTypes.includes('EXPORT') },
+                  ]}
+                />
+              </Field>
+
+              <Field label="Data set">
+                <Segmented<Mode>
+                  label="Data set"
+                  value={effectiveMode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'complete', label: `Complete · ${fmtNumber(info.hsCodeCount)}` },
+                    { value: 'test', label: `Test · ${fmtNumber(info.testHsCodeCount)}`, disabled: isProd || !info.testHsCodeCount },
+                  ]}
+                />
+              </Field>
             </div>
-            <p className="field-help">
-              For this run only; empty fields keep the defaults shown. Faster rates can get blocked by some sources.{' '}
+
+            {/* Rarely changed, so two small toggles; their fields open below */}
+            <div className="more-options">
+              <button type="button" className={`more-toggle ${hsOpen ? 'open' : ''}`} aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
+                Specific HS codes{useCodes ? ` · ${codes.length}` : ''}
+                <Icon.ChevronDown size={13} />
+              </button>
+              <button type="button" className={`more-toggle ${tuneOpen ? 'open' : ''}`} aria-expanded={tuneOpen} onClick={() => setTuneOpen((o) => !o)}>
+                Advanced options{tuned ? ` · ${tuned} changed` : ''}
+                <Icon.ChevronDown size={13} />
+              </button>
+            </div>
+
+            {hsOpen && (
+              <div className="more-body">
+                <textarea
+                  rows={3}
+                  className="control textarea mono"
+                  placeholder="Only these codes instead of the data set: paste them separated by commas, spaces or new lines, e.g. 0901, 090111"
+                  value={hsText}
+                  onChange={(e) => setHsText(e.target.value)}
+                  spellCheck={false}
+                  autoFocus
+                />
+                <p className="field-help">{info.hsCodeHint}</p>
+              </div>
+            )}
+
+            {tuneOpen && (
+              <div className="more-body">
+                <div className="tuning-grid">
+                  {tuningField('concurrency', 'Parallel requests', 'at once', 1, 20)}
+                  {tuningField('rateLimitPerMinute', 'Request rate', 'per min', 1, 600)}
+                  {tuningField('retryMaxAttempts', 'Retries', 'times', 0, 10)}
+                  {tuningField('retryDelayMs', 'First retry after', 'sec', 1, 60)}
+                </div>
+                <p className="field-help">
+                  For this run only; empty fields keep the defaults shown. Faster rates can get blocked by some sources.{' '}
+                  {tuned > 0 && (
+                    <button type="button" className="text-btn" onClick={() => setTuning(NO_TUNING)}>
+                      Reset
+                    </button>
+                  )}
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {bulk && info.bulkDownload && (
+        <>
+          {unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet; ${unpublished.length === 1 ? 'its link' : 'their links'} can show an error page.`)}
+          <div className="run-summary">
+            <dl>
+              <div>
+                <dt>Months</dt>
+                <dd>{start ? fmtRange([start, end]) : '—'}</dd>
+              </div>
+              <div>
+                <dt>Files</dt>
+                <dd>{plural(months.length, 'file')}, both flows, every product</dd>
+              </div>
+            </dl>
+            <Button variant="primary" icon={<Icon.Download size={15} />} disabled={!start || !end} onClick={() => setShowLinks(true)}>
+              Show download links{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
+            </Button>
+          </div>
+          <BulkLinksModal open={showLinks} onClose={() => setShowLinks(false)} bulk={info.bulkDownload} periods={months} latest={latest} />
+        </>
+      )}
+
+      {!bulk && (
+        <>
+          {error && note('error', error)}
+          {!error && tuningInvalid && note('error', 'Advanced options are out of range: 1–20 parallel requests, 1–600 per minute, 0–10 retries, 1–60 seconds.')}
+          {!error &&
+            completed.length > 0 &&
+            note(
+              'warn',
+              <>
+                {listMonths(completed)} {completed.length === 1 ? 'is' : 'are'} already completed. Extracting again replaces {completed.length === 1 ? 'its file' : 'their files'} and marks{' '}
+                {completed.length === 1 ? 'it' : 'them'} extracting until checked again.
+              </>
+            )}
+          {!error &&
+            extracting.length > 0 &&
+            note(
+              'warn',
+              <>
+                {listMonths(extracting)} {extracting.length === 1 ? 'was' : 'were'} extracted already and {extracting.length === 1 ? 'is' : 'are'} waiting to be checked.{' '}
+                <Link href={`/countries/${country.code}`} className="link">
+                  Review instead
+                </Link>
+              </>
+            )}
+          {!error &&
+            beforeStart.length > 0 &&
+            note('error', `${country.name} has data from ${fmtMonth(country.startPeriod!)} onwards; ${listMonths(beforeStart)} can't be extracted. Pick later months.`)}
+          {!error && unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet, so the source can return no rows.`)}
+
+          <div className="run-summary">
+            <dl>
+              <div>
+                <dt>Months</dt>
+                <dd>{start ? fmtRange([start, end]) : '—'}</dd>
+              </div>
+              <div>
+                <dt>Flows</dt>
+                <dd>{fmtFlows(flows)}</dd>
+              </div>
+              <div>
+                <dt>HS codes</dt>
+                <dd>{useCodes ? plural(codes.length, 'custom code') : `${fmtNumber(savedCount)} ${effectiveMode}`}</dd>
+              </div>
               {tuned > 0 && (
-                <button type="button" className="text-btn" onClick={() => setTuning(NO_TUNING)}>
-                  Reset
-                </button>
+                <div>
+                  <dt>Threads</dt>
+                  <dd>{options.concurrency ?? tuningDefaults.concurrency} at once</dd>
+                </div>
               )}
-            </p>
+            </dl>
+            <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
+              Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
+            </Button>
           </div>
-        )}
-      </div>
-
-      {error && note('error', error)}
-      {!error && tuningInvalid && note('error', 'Advanced options are out of range: 1–20 parallel requests, 1–600 per minute, 0–10 retries, 1–60 seconds.')}
-      {!error &&
-        completed.length > 0 &&
-        note(
-          'warn',
-          <>
-            {listMonths(completed)} {completed.length === 1 ? 'is' : 'are'} already completed. Extracting again replaces {completed.length === 1 ? 'its file' : 'their files'} and marks{' '}
-            {completed.length === 1 ? 'it' : 'them'} extracting until checked again.
-          </>
-        )}
-      {!error &&
-        extracting.length > 0 &&
-        note(
-          'warn',
-          <>
-            {listMonths(extracting)} {extracting.length === 1 ? 'was' : 'were'} extracted already and {extracting.length === 1 ? 'is' : 'are'} waiting to be checked.{' '}
-            <Link href={`/countries/${country.code}`} className="link">
-              Review instead
-            </Link>
-          </>
-        )}
-      {!error &&
-        beforeStart.length > 0 &&
-        note('error', `${country.name} has data from ${fmtMonth(country.startPeriod!)} onwards; ${listMonths(beforeStart)} can't be extracted. Pick later months.`)}
-      {!error && unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet, so the source can return no rows.`)}
-
-      <div className="run-summary">
-        <dl>
-          <div>
-            <dt>Months</dt>
-            <dd>{start ? fmtRange([start, end]) : '—'}</dd>
-          </div>
-          <div>
-            <dt>Flows</dt>
-            <dd>{fmtFlows(flows)}</dd>
-          </div>
-          <div>
-            <dt>HS codes</dt>
-            <dd>{useCodes ? plural(codes.length, 'custom code') : `${fmtNumber(savedCount)} ${effectiveMode}`}</dd>
-          </div>
-          {tuned > 0 && (
-            <div>
-              <dt>Threads</dt>
-              <dd>{options.concurrency ?? tuningDefaults.concurrency} at once</dd>
-            </div>
-          )}
-        </dl>
-        <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
-          Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
-        </Button>
-      </div>
+        </>
+      )}
     </Panel>
   );
 }

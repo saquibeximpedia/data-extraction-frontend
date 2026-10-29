@@ -79,7 +79,9 @@ export function AppProvider({ me, children }: { me: Me; children: React.ReactNod
     return () => clearInterval(timer);
   }, [checkNow]);
 
-  // What the service extracts and runs: loaded whenever it (re)appears
+  // What the service extracts and runs: loaded whenever it (re)appears, also after a restart
+  // quicker than a health check (e.g. a dev reload), which can bring new countries
+  const startedAt = live ? service.health?.startedAt : undefined;
   useEffect(() => {
     seen.current = [];
     setExtractors(null);
@@ -87,7 +89,7 @@ export function AppProvider({ me, children }: { me: Me; children: React.ReactNod
     if (!live) return;
     extractor.countries().then(setExtractors, () => setExtractors(null));
     refreshLiveRuns();
-  }, [live, service.url, refreshLiveRuns]);
+  }, [live, service.url, startedAt, refreshLiveRuns]);
 
   // A health check that sees runs we don't know about (e.g. started from another browser) fetches them
   const reportedRunning = live ? (service.health?.running ?? 0) : 0;

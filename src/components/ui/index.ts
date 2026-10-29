@@ -6,7 +6,7 @@ export { Select } from './select';
 export type { SelectOption } from './select';
 export { MonthRangePicker } from './month-range-picker';
 export type { MonthPreset } from './month-range-picker';
-export { Menu } from './menu';
+export { ContextMenu, Menu } from './menu';
 export type { MenuItem } from './menu';
 export { Segmented, Field, SearchInput, NumberInput } from './controls';
 export { FilterTabs } from './filter-tabs';

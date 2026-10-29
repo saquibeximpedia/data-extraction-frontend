@@ -120,7 +120,7 @@ export function CountryOverview({ country, running }: { country: Country; runnin
             <span className="next-step-help">
               Extracted months stay <b>extracting</b> until someone checks the files. Mark them completed once the files look right, or remove them to set them
               back to not done.{' '}
-              <a href="#edit-months" className="text-btn">
+              <a href="#months" className="text-btn">
                 Change only some
               </a>
             </span>

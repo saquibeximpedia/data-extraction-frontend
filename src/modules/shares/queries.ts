@@ -133,12 +133,12 @@ export const shares = {
    * One file as a signed link, or every file as one zip. The path must be one of the link's own
    * files, so a link can never reach anything else in the bucket.
    */
-  async download(id: string, password: string | undefined, path: string | undefined, callerKey: string): Promise<{ url: string } | { zip: Uint8Array; name: string }> {
+  async download(id: string, password: string | undefined, path: string | undefined, callerKey: string): Promise<{ url: string } | { zip: ReadableStream<Uint8Array>; name: string }> {
     const row = await getLive(id);
     await checkPassword(row, password, callerKey);
     const shared = row.files as SharedFile[];
 
-    let out: { url: string } | { zip: Uint8Array; name: string };
+    let out: { url: string } | { zip: ReadableStream<Uint8Array>; name: string };
     if (path) {
       if (!shared.some((f) => f.path === path)) throw notFound('This file is not part of the link.');
       out = {

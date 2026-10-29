@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { MonthLegend, STATE_LABEL } from '@/components/months';
 import { RecheckButton, SetupNeeded, useSetupProblem } from '@/components/service-notice';
 import { ExtractSkeleton } from '@/components/skeletons';
@@ -84,6 +85,9 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
   const requestedCountry = countries.find((c) => c.code === code);
   const country = (requestedCountry?.kind === 'api' ? requestedCountry : null) ?? extractable.find((c) => extractability(c.code).ok) ?? extractable[0];
   const info = extractors?.find((e) => e.code === country?.code);
+  // "Bulk file links" picked on the form (countries whose source publishes monthly files), kept per country
+  const [bulkFor, setBulkFor] = useState<string | null>(null);
+  const bulk = Boolean(info?.bulkDownload) && bulkFor === country?.code;
 
   if (service.status === 'offline') return <ServiceDown />;
   if (service.status === 'checking' || !extractors) return <ExtractSkeleton />;
@@ -126,7 +130,15 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
     <div className="extract-layout">
       <div className="extract-main">
         {info && status.ok ? (
-          <ExtractForm key={country.code} country={country} info={info} requested={country.code === code ? requested : {}} countrySelect={countrySelect} />
+          <ExtractForm
+            key={country.code}
+            country={country}
+            info={info}
+            requested={country.code === code ? requested : {}}
+            countrySelect={countrySelect}
+            bulk={bulk}
+            onBulk={(on) => setBulkFor(on ? country.code : null)}
+          />
         ) : (
           <Panel i={1} className="extract-card">
             <FormHead countrySelect={countrySelect} />
@@ -135,7 +147,7 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
             </div>
           </Panel>
         )}
-        <SourceInfo country={country} i={3} />
+        <SourceInfo country={country} i={3} source={bulk ? info?.bulkDownload?.source : undefined} />
       </div>
       <aside className="extract-aside">
         <RecentMonths country={country} />

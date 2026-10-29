@@ -7,9 +7,8 @@ import { useExtractability } from '@/modules/service/store';
 import { Badge, Icon, revealStyle } from './ui';
 
 /** Where the country's data comes from and how it is fetched: plain text on the page, no card */
-export function SourceInfo({ country, i = 3 }: { country: Country; i?: number }) {
+export function SourceInfo({ country, i = 3, source = country.source }: { country: Country; i?: number; source?: Country['source'] }) {
   const extractability = useExtractability();
-  const { source } = country;
   const status = country.kind === 'manual' ? null : extractability(country.code);
   const latest = latestPublished(country);
   const facts: [string, React.ReactNode, boolean?][] = [

@@ -36,6 +36,7 @@
   --glass-blur: blur(22px) saturate(160%);
   --shadow-sm: 0 1px 2px rgba(22, 24, 29, 0.04);
   --pop-shadow: 0 16px 40px -12px rgba(22, 24, 29, 0.24), 0 2px 6px rgba(22, 24, 29, 0.06);
+  --dock-shadow: 0 18px 48px -8px rgba(22, 24, 29, 0.32), 0 4px 12px rgba(22, 24, 29, 0.1);
 
   /* Strong neutral, for outlines and marks */
   --ink: #16181d;
@@ -101,6 +102,7 @@
   --glass-blur: blur(22px) saturate(140%);
   --shadow-sm: none;
   --pop-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --dock-shadow: 0 18px 48px -8px rgba(0, 0, 0, 0.85), 0 4px 12px rgba(0, 0, 0, 0.5);
 
   --ink: #ededef;
   --on-ink: #212125;
@@ -244,7 +246,6 @@ svg { flex: none; }
 .panel-title { font-size: 18px; font-weight: 500; letter-spacing: -0.015em; }
 .panel-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
-.panel-editing { box-shadow: 0 0 0 1.5px var(--border-strong); }
 .foot-summary { font-size: 12.5px; color: var(--muted); }
 .empty { text-align: center; color: var(--muted); padding: 32px 20px; font-size: 13px; }
 
@@ -528,9 +529,13 @@ button.month-cell { cursor: pointer; }
 button.month-cell:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--border-strong); }
 button.month-cell:disabled { cursor: default; }
 .month-cell { position: relative; }
-.month-cell.changed { outline: 1.5px dashed currentColor; outline-offset: -4px; }
-.month-cell.changed::after { content: ''; position: absolute; top: 5px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.year-grid.editing { user-select: none; -webkit-user-select: none; }
+/* Selected months (Ctrl/Shift+click), set together from the right-click menu or the bottom bar */
+.month-cell.selected { box-shadow: inset 0 0 0 2px var(--accent); }
+button.month-cell.selected:hover:not(:disabled) { box-shadow: inset 0 0 0 2px var(--accent); }
+.year-grid.selectable { user-select: none; -webkit-user-select: none; }
+button.year-label { border: 0; background: none; padding: 4px 6px; margin: -4px -6px; border-radius: var(--r-sm); font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }
+button.year-label:hover { background: var(--sunken); }
+.menu-icon .legend-swatch, .btn .legend-swatch { flex: none; }
 
 .month-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .month-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -540,10 +545,6 @@ button.month-cell:disabled { cursor: default; }
 .months-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
 
 /* Edit mode: click to cycle, save in the sticky foot */
-.month-editor { display: grid; gap: 14px; }
-.editor-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-right: 6px; }
-.editor-summary b { color: var(--text); font-weight: 600; }
-.summary-chip { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Last 12 months on the dashboard: thin bars */
 .month-strip { display: grid; grid-template-columns: repeat(12, 5px); gap: 3px; align-items: center; }
@@ -717,7 +718,7 @@ button.month-cell:disabled { cursor: default; }
   overflow-y: auto; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin;
 }
 .stats-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.stats-panel-title { display: inline-flex; align-items: center; }
+.stats-panel-title { display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--text); }
 .stats-panel-pct { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stats-progress-track { width: 100%; height: 6px; background: var(--border); border-radius: var(--r-pill); overflow: hidden; }
 .stats-progress-bar { height: 100%; background: var(--green-bar); border-radius: var(--r-pill); transition: width 0.3s ease; }
@@ -785,11 +786,26 @@ button.month-cell:disabled { cursor: default; }
 .file-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px; border-radius: var(--r); transition: background 0.12s; }
 .file-row + .file-row { box-shadow: inset 0 1px 0 var(--border); }
 .file-row.selectable { cursor: pointer; user-select: none; }
+/* A month stored in parts: one entry, opening to its parts indented below */
+.file-parts-list { box-shadow: inset 0 1px 0 var(--border); padding: 2px 0 6px 28px; }
+.file-parts-list + .file-row { box-shadow: inset 0 1px 0 var(--border); }
+.file-part { min-height: 44px; }
+.file-part .file-icon { width: 30px; height: 30px; }
+.parts-toggle svg { transition: transform 0.2s var(--ease); }
+.parts-toggle.open svg { transform: rotate(180deg); }
 .file-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: var(--r); background: var(--sunken); }
 .file-icon.ext-csv { color: var(--green); }
 .file-icon.ext-xls { color: var(--blue); }
 .file-icon.ext-zip { color: var(--amber); }
 .file-icon.ext-share { color: var(--accent); }
+
+/* Bulk file links (extract page): one row per month, opened straight from the source */
+.bulk-links { list-style: none; margin: 0 0 18px; padding: 0; display: grid; border: 1px solid var(--border); border-radius: var(--r); max-height: 360px; overflow-y: auto; }
+.bulk-links li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; min-width: 0; }
+.bulk-links li + li { box-shadow: inset 0 1px 0 var(--border); }
+.bulk-link-month { flex: none; width: 76px; font-weight: 600; font-size: 13px; }
+.bulk-link-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.bulk-listing { margin-right: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
 
 /* Share links: the create dialog and the link box */
 .share-form { display: grid; gap: 14px; }
@@ -811,7 +827,11 @@ button.month-cell:disabled { cursor: default; }
 .selection-dock { position: fixed; left: 0; right: 0; bottom: 20px; z-index: 40; display: flex; justify-content: center; pointer-events: none; transform: translateY(120%); opacity: 0; transition: transform 0.3s var(--ease), opacity 0.2s; }
 .selection-dock.on { transform: none; opacity: 1; }
 .selection-dock.on .selection-dock-inner { pointer-events: auto; }
-.selection-dock-inner { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 20px; border-radius: var(--r-pill); max-width: calc(100vw - 32px); flex-wrap: wrap; }
+/* Solid, with a firm edge and a deep shadow: see-through glass blended into the white cards behind it */
+.selection-dock-inner {
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 20px; border-radius: var(--r-pill); max-width: calc(100vw - 32px); flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--dock-shadow);
+}
 .selection-dock.on .selection-dock-inner { animation: dockIn 0.35s var(--spring) both; }
 @keyframes dockIn { from { opacity: 0; transform: translateY(16px); } }
 .bulk-text { font-size: 13px; color: var(--text-2); white-space: nowrap; margin-right: 6px; }

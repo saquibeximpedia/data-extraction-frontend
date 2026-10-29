@@ -1,5 +1,5 @@
 import 'server-only';
-import JSZip from 'jszip';
+import { zipStream } from '@/lib/zip';
 import { UPLOAD_TYPES } from '@/lib/files';
 import { badRequest, HttpError, notFound, result } from '@/lib/http';
 import { fileUrlFor } from '@/lib/months';
@@ -75,10 +75,14 @@ function extensionOf(name: string, contentType: string): string | null {
   return null;
 }
 
-function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'origin' | 'part'> {
+/** Files of runs on the test HS codes sit under this top folder, apart from the real data */
+const TEST_FOLDER = '_test';
+
+function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'origin' | 'part' | 'test'> {
+  const test = relativePath.startsWith(`${TEST_FOLDER}/`);
   const m = (relativePath.split('/').pop() ?? '').match(FILE_RE);
-  if (!m) return { countryCode: null, period: null, origin: 'uploaded', part: null };
-  return { countryCode: m[1].toUpperCase(), period: m[2], origin: m[4] ? 'uploaded' : 'extracted', part: m[3] ? Number(m[3]) : null };
+  if (!m) return { countryCode: null, period: null, origin: 'uploaded', part: null, test };
+  return { countryCode: m[1].toUpperCase(), period: m[2], origin: m[4] ? 'uploaded' : 'extracted', part: m[3] ? Number(m[3]) : null, test };
 }
 
 /** Fails with a clear message when SUPABASE_BUCKET is not a bucket of this project */
@@ -91,11 +95,12 @@ async function assertBucket(): Promise<void> {
  * Files in the private bucket, one folder per country and year:
  *   {CC}/{YYYY}/{CC}_{YYYY-MM}.csv            written by the extraction service
  *   {CC}/{YYYY}/{CC}_{YYYY-MM}__{name}.xlsx   uploaded by users
+ *   _test/{CC}/{YYYY}/{CC}_{YYYY-MM}.csv      written by runs on the test HS codes
  * The browser never gets bucket access: it downloads through short-lived signed links and
  * uploads through one-time signed upload links handed out here.
  */
 export const files = {
-  /** Every file, newest first (folders are walked: country → year → files); only a country's, when given */
+  /** Every file, newest first (folders are walked: country → year → files); only a country's (with its test files), when given */
   async list(countryCode?: string): Promise<ExportFile[]> {
     const prefix = countryCode?.toUpperCase();
     // Files still list without their uploaders, e.g. before supabase/schema.sql adds file_meta
@@ -126,7 +131,10 @@ export const files = {
         if (data.length < 1000) return;
       }
     };
-    await walk(prefix ?? '', prefix ? 1 : 0);
+    if (prefix) {
+      await walk(prefix, 1);
+      await walk(`${TEST_FOLDER}/${prefix}`, 2);
+    } else await walk('', 0);
     // Storage lists a missing bucket as empty: say so, or a wrong SUPABASE_BUCKET looks like "no files yet"
     if (!out.length) await assertBucket();
     return out.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
@@ -148,15 +156,31 @@ export const files = {
     return data.map((f) => f.name);
   },
 
-  /** The files as one zip (kept under their folders) */
-  async zip(relativePaths: string[]): Promise<Uint8Array> {
-    const zip = new JSZip();
-    for (const relativePath of relativePaths) {
-      const { data, error } = await bucket().download(safePath(relativePath));
-      if (error) fail(`Download ${relativePath}`, error);
-      zip.file(relativePath, new Uint8Array(await data.arrayBuffer()));
-    }
-    return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  /**
+   * The files as one zip (kept under their folders), streamed: each file is read from Storage as
+   * its turn comes. Every file is checked first, so a missing one fails before anything is sent.
+   */
+  async zip(relativePaths: string[]): Promise<ReadableStream<Uint8Array>> {
+    const paths = relativePaths.map(safePath);
+    // Signed links that outlast a long download
+    const { data, error } = await bucket().createSignedUrls(paths, 3600);
+    if (error) fail('Download', error);
+    const signed = new Map(data.map((d) => [d.path, d]));
+    const urls = paths.map((path) => {
+      const url = signed.get(path)?.signedUrl;
+      if (!url) fail(`Download ${path}`, { message: signed.get(path)?.error ?? 'not found' });
+      return url;
+    });
+    return zipStream(
+      paths.map((path, i) => ({
+        name: path,
+        open: async () => {
+          const res = await fetch(urls[i]);
+          if (!res.ok || !res.body) throw new HttpError(502, `Download ${path}: HTTP ${res.status}`);
+          return res.body as unknown as AsyncIterable<Uint8Array>;
+        },
+      }))
+    );
   },
 
   /** Name, size and existence of files, by path (folders are listed once each) */

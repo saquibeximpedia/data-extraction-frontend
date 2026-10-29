@@ -31,12 +31,23 @@ export interface CountrySource {
 }
 
 /** What the extraction service can do for one country (GET {service}/api/countries) */
+/** Monthly files the source publishes, linked to directly from the extract page (nothing is fetched by the service) */
+export interface BulkDownload {
+  description: string;
+  /** A month's file, with {YYYYMM} for the month */
+  urlTemplate: string;
+  listingUrl: string;
+  source: CountrySource;
+}
+
 export interface ExtractorInfo {
   code: string;
   name: string;
   enabled: boolean;
   missingConfig: string[];
   source: CountrySource;
+  /** Monthly files to download straight from the source instead of extracting (null or missing: none) */
+  bulkDownload?: BulkDownload | null;
   lagMonths: number;
   publishDay: number;
   /** Earliest month with data (older services don't say) */
@@ -182,6 +193,8 @@ export interface ExportFile {
   part: number | null;
   /** Who uploaded it (null for extracted files) */
   uploadedBy: string | null;
+  /** Written by a run on the test HS codes (stored under _test/, apart from the real data) */
+  test: boolean;
 }
 
 /** A file in a share link, as it was when the link was made */
@@ -230,6 +243,7 @@ export interface AppSettings {
   retryDelayMs: number;
   emptyStreakFlagAt: number;
   maxUploadMb: number;
+  zipOverMb: number;
 }
 
 /** Per-run tuning on the extract form; anything left out uses the settings or the country's own limits */

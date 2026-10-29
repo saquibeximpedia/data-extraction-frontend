@@ -17,7 +17,8 @@ const SETTING_FIELDS: { key: keyof AppSettings; label: string; help: string; uni
   { key: 'retryMaxAttempts', label: 'Retries', help: 'For timeouts, rate limits and server errors.', unit: 'times', min: 0, max: 10 },
   { key: 'retryDelayMs', label: 'First retry after', help: 'Doubles with each retry.', unit: 'sec', min: 1, max: 60, scale: 1000 },
   { key: 'emptyStreakFlagAt', label: 'Flag after empty requests', help: 'Requests in a row with 0 records before a run is flagged.', unit: 'requests', min: 10, max: 100000 },
-  { key: 'maxUploadMb', label: 'Split files larger than', help: 'A bigger month is saved in parts. Keep it under your storage plan’s file limit.', unit: 'MB', min: 1, max: 500 },
+  { key: 'zipOverMb', label: 'Zip months larger than', help: 'A bigger month is zipped on the service before it is stored, about 15 times smaller. 0 zips every month.', unit: 'MB', min: 0, max: 5000 },
+  { key: 'maxUploadMb', label: 'Largest file stored', help: 'A month whose zip would be bigger is stored as several zips. Keep it under your storage plan’s file limit.', unit: 'MB', min: 1, max: 500 },
 ];
 
 const toForm = (s: AppSettings) => Object.fromEntries(SETTING_FIELDS.map((f) => [f.key, String(Math.round(s[f.key] / (f.scale ?? 1)))])) as Record<keyof AppSettings, string>;

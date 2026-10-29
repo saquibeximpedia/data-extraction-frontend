@@ -58,11 +58,16 @@ export function yearsFor(country: Country, added: number[] = []): number[] {
   return [...new Set([...base, ...added])].sort((a, b) => b - a);
 }
 
-/** Earlier years that can be added to a country's months, newest first: back to its start, or 15 years */
-export function addableYears(country: Country, shown: number[]): number[] {
+/** Why a typed year can't be added to a country's months, or '' when it can (back to its start month, else 1950) */
+export function yearProblem(country: Country, shown: number[], input: string): string {
   const thisYear = new Date().getFullYear();
-  const earliest = country.startPeriod ? Number(country.startPeriod.slice(0, 4)) : thisYear - 15;
-  return Array.from({ length: Math.max(0, thisYear - earliest + 1) }, (_, i) => thisYear - i).filter((y) => !shown.includes(y));
+  const earliest = country.startPeriod ? Number(country.startPeriod.slice(0, 4)) : 1950;
+  if (!/^\d{4}$/.test(input.trim())) return 'Enter a year, e.g. 2019';
+  const year = Number(input);
+  if (year > thisYear) return `${year} hasn’t started yet`;
+  if (year < earliest) return country.startPeriod ? `${country.name} has data from ${earliest}` : `Enter a year from ${earliest}`;
+  if (shown.includes(year)) return `${year} is already shown`;
+  return '';
 }
 
 /** The latest month the source should have published by now */

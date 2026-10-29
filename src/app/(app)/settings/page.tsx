@@ -1,4 +1,5 @@
 import { Panel } from '@/components/ui';
+import { ChangePassword } from '@/modules/auth/components/ChangePassword';
 import { requireUser } from '@/modules/auth/session';
 import { ExtractionSettings } from '@/modules/settings/components/ExtractionSettings';
 
@@ -8,7 +9,7 @@ export default async function SettingsPage() {
   return (
     <div className="settings-grid">
       <ExtractionSettings />
-      <Panel i={2} title="Account" desc="Accounts are created by an admin.">
+      <Panel i={2} title="Account" desc="Accounts are created by an admin." actions={<ChangePassword />}>
         <dl className="service-facts single">
           <div>
             <dt>Signed in as</dt>
