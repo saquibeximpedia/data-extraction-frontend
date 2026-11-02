@@ -2,25 +2,29 @@ import { Panel } from '@/components/ui';
 import { ChangePassword } from '@/modules/auth/components/ChangePassword';
 import { requireUser } from '@/modules/auth/session';
 import { ExtractionSettings } from '@/modules/settings/components/ExtractionSettings';
+import { LocalCopy } from '@/modules/settings/components/LocalCopy';
 
-/** How extractions run (threads, retries, file size) beside the signed-in account. The service's address and status are on /service. */
+/** How extractions run (threads, retries, file size) beside the signed-in account and the copy to this device. The service's address and status are on /service. */
 export default async function SettingsPage() {
   const me = await requireUser();
   return (
     <div className="settings-grid">
       <ExtractionSettings />
-      <Panel i={2} title="Account" desc="Accounts are created by an admin." actions={<ChangePassword />}>
-        <dl className="service-facts single">
-          <div>
-            <dt>Signed in as</dt>
-            <dd>{me.username}</dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd>{me.role === 'admin' ? 'Admin' : 'User'}</dd>
-          </div>
-        </dl>
-      </Panel>
+      <div className="settings-side">
+        <Panel i={2} title="Account" desc="Accounts are created by an admin." actions={<ChangePassword />}>
+          <dl className="service-facts single">
+            <div>
+              <dt>Signed in as</dt>
+              <dd>{me.username}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{me.role === 'admin' ? 'Admin' : 'User'}</dd>
+            </div>
+          </dl>
+        </Panel>
+        <LocalCopy />
+      </div>
     </div>
   );
 }

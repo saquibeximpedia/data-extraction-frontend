@@ -43,13 +43,18 @@ export async function checkService(base: string): Promise<{ ok: true; health: Se
   }
 }
 
-/** Calls the service with the signed-in person's Supabase token, which it verifies */
-async function service<T>(path: string, options: RequestInit = {}): Promise<T> {
+/** Calls the service with the signed-in person's Supabase token, which it verifies; the response as it came */
+async function serviceRaw(path: string, options: RequestInit = {}): Promise<Response> {
   const token = (await supabase.auth.getSession()).data.session?.access_token ?? '';
-  const res = await fetch(serviceUrl() + path, {
+  return fetch(serviceUrl() + path, {
     ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${token}`, ...options.headers },
   });
+}
+
+/** Calls the service and reads its JSON answer; a failure becomes an AppError with its message */
+async function service<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await serviceRaw(path, options);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new AppError(body.error || `Request failed (HTTP ${res.status})`, res.status, body);
   return body as T;
@@ -60,6 +65,12 @@ const json = (method: string, body: unknown): RequestInit => ({ method, body: JS
 export interface SettingsResponse {
   settings: AppSettings;
   defaults: AppSettings;
+}
+
+export interface HeldFile {
+  /** {CC}/{YYYY}/{file}, as it goes into the folder */
+  path: string;
+  size: number;
 }
 
 export interface ExtractBody {
@@ -81,6 +92,12 @@ export const extractor = {
   stopRun: (id: string) => service<{ success: boolean }>(`/api/runs/${id}/stop`, { method: 'POST' }),
   /** Only a running extraction has logs; the service drops them when it ends */
   runLogs: (id: string) => service<{ logs: RunLog[] }>(`/api/runs/${id}/logs`).then((r) => r.logs),
+  /** Files of a run saved to the device that are still waiting on the service */
+  heldFiles: (id: string) => service<{ files: HeldFile[] }>(`/api/runs/${id}/held`).then((r) => r.files),
+  /** One held file, to stream into the folder */
+  heldFile: (id: string, path: string, signal?: AbortSignal) => serviceRaw(`/api/runs/${id}/held/file?path=${encodeURIComponent(path)}`, { signal }),
+  /** Drops held files once they are in the folder */
+  clearHeld: (id: string, paths: string[]) => service<{ success: boolean }>(`/api/runs/${id}/held`, json('DELETE', { paths })),
   /** The extraction settings in force, and their .env defaults */
   settings: () => service<SettingsResponse>('/api/settings'),
   /** Admins only; applies from the next request on */

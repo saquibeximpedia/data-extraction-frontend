@@ -12,6 +12,7 @@ import { describeRun, extractHref, fmtRecords, isRunning, requestCount, runNotes
 import type { Country, ExportFile, Run, RunLog } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { useApp } from '@/modules/service/store';
+import { DeviceFiles, savesToDevice } from './DeviceFiles';
 import { RunFiles } from './RunFiles';
 import { formatLogMessage, RunOutcome, RunStatusBadge, StopButton } from './RunParts';
 
@@ -59,9 +60,11 @@ function AfterRun({ run, countries }: { run: Run; countries: Country[] }) {
               {toCheck.length > 0 && (
                 <>
                   <RemoveMonthsButton country={country} periods={toCheck} size="md" />
-                  <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
-                    <Icon.Folder size={14} /> Files
-                  </Link>
+                  {!savesToDevice(run) && (
+                    <Link href={`/files?country=${country.code}`} className="btn btn-secondary btn-md">
+                      <Icon.Folder size={14} /> Files
+                    </Link>
+                  )}
                   <MarkCompletedButton country={country} periods={toCheck} size="md" label={toCheck.length === 1 ? `Mark ${fmtMonth(toCheck[0])} completed` : `Mark ${plural(toCheck.length, 'month')} completed`} />
                 </>
               )}
@@ -89,7 +92,7 @@ function RunSummary({ run, files, countries }: { run: Run; files: ExportFile[] |
         ]}
       />
       <RunOutcome run={run} />
-      <RunFiles files={run.stats.files} stored={files} countries={countries} />
+      {savesToDevice(run) ? <DeviceFiles run={run} running={false} /> : <RunFiles files={run.stats.files} stored={files} countries={countries} />}
     </>
   );
 }
@@ -233,7 +236,7 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
           )}
         </div>
       </div>
-      <RunFiles files={s.files} stored={files} countries={countries} />
+      {savesToDevice(run) ? <DeviceFiles run={run} running /> : <RunFiles files={s.files} stored={files} countries={countries} />}
     </div>
   );
 }

@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Button, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, Select, type MonthPreset } from '@/components/ui';
 import { fmtFlows, fmtMonth, fmtRange, plural, fmtNumber } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
-import { errorText } from '@/lib/result';
+import { hasAccess, pickFolder, savedDestination, savedFolder, type Destination, type Dir } from '@/lib/local-folder';
+import { AppError, errorText } from '@/lib/result';
 import type { AppSettings, Country, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { BulkLinksModal, isDownloadOnly } from './BulkLinksModal';
@@ -64,7 +65,8 @@ function initialMonths(country: Country, requested: RequestedMonths): [string, s
 }
 
 /** Per-run tuning fields; empty ones keep the default shown as the placeholder */
-type Tuning = Record<keyof RunOptions, string>;
+// The numeric options as typed in their fields (where the files go is chosen apart)
+type Tuning = Record<Exclude<keyof RunOptions, 'destination'>, string>;
 const NO_TUNING: Tuning = { concurrency: '', rateLimitPerMinute: '', retryMaxAttempts: '', retryDelayMs: '' };
 
 /** The extraction service's settings, for the defaults the tuning fields show (null: not loaded, or an older service) */
@@ -139,6 +141,13 @@ export function ExtractForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showLinks, setShowLinks] = useState(false);
+  // Set on Settings for this browser; read after loading so the page hydrates the same
+  const [saveTo, setSaveTo] = useState<Destination>('storage');
+  const [folder, setFolder] = useState<Dir | null>(null);
+  useEffect(() => {
+    setSaveTo(savedDestination());
+    savedFolder().then((dir) => dir && setFolder(dir));
+  }, []);
 
   const pickWhen = (value: When) => {
     setWhen(value);
@@ -191,6 +200,14 @@ export function ExtractForm({
     setBusy(true);
     setError('');
     try {
+      // Picked (or allowed) now, from this click: the browser only asks for folder access from one
+      if (saveTo === 'device') {
+        const dir = folder ?? (await pickFolder());
+        if (!dir) throw new AppError('Choose the folder on this device the files go to.', 400);
+        setFolder(dir);
+        if (!(await hasAccess(dir, true))) throw new AppError(`Allow editing files in "${dir.name}" to save the files there.`, 403);
+      }
+      const runOptions: RunOptions | undefined = tuned || saveTo === 'device' ? { ...(tuned ? options : {}), ...(saveTo === 'device' ? { destination: 'device' as const } : {}) } : undefined;
       const { runId } = await extractor.extract({
         countryCode: country.code,
         startDate: start,
@@ -198,7 +215,7 @@ export function ExtractForm({
         hsCodes: useCodes ? hsText.trim() : undefined,
         tradeType: flow,
         mode: effectiveMode,
-        options: tuned ? options : undefined,
+        options: runOptions,
       });
       // Its page finds it among the live runs before the database has it
       await refreshLiveRuns();
@@ -210,7 +227,7 @@ export function ExtractForm({
   }
 
   const listMonths = (periods: string[]) => (periods.length > 3 ? plural(periods.length, 'month') : periods.map(fmtMonth).join(', '));
-  const tuningField = (key: keyof RunOptions, label: string, unit: string, min: number, max: number) => (
+  const tuningField = (key: keyof Tuning, label: string, unit: string, min: number, max: number) => (
     <Field label={label} htmlFor={`tune-${key}`}>
       <NumberInput id={`tune-${key}`} value={tuning[key]} onChange={(v) => setTuning({ ...tuning, [key]: v })} placeholder={tuningDefaults[key]} unit={unit} min={min} max={max} />
     </Field>
@@ -447,6 +464,14 @@ export function ExtractForm({
               <div>
                 <dt>HS codes</dt>
                 <dd>{useCodes ? plural(codes.length, 'custom code') : `${fmtNumber(savedCount)} ${effectiveMode}`}</dd>
+              </div>
+              <div>
+                <dt>Saved to</dt>
+                <dd>
+                  <Link href="/settings" className="link" title="Change on Settings">
+                    {saveTo === 'device' ? `My device${folder ? ` · ${folder.name}` : ''}` : 'Database'}
+                  </Link>
+                </dd>
               </div>
               {tuned > 0 && (
                 <div>

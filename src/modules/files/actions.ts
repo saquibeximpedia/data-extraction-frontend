@@ -21,6 +21,28 @@ export async function fileUrl(path: string) {
   );
 }
 
+/** Every stored file except test runs' (path and size), for copying them to a folder on this device */
+export async function syncList() {
+  return act(
+    async () => {
+      await authorize();
+      return (await files.list()).filter((f) => !f.test).map((f) => ({ path: f.relativePath, size: f.sizeBytes }));
+    },
+    { revalidate: false }
+  );
+}
+
+/** Download links that last an hour, by path, for up to 500 files */
+export async function fileUrls(paths: string[]) {
+  return act(
+    async () => {
+      await authorize();
+      return files.signedUrls([...new Set(parse(filePathsSchema, paths))]);
+    },
+    { revalidate: false }
+  );
+}
+
 /** Removes files from storage (month status is not changed); returns their names */
 export async function deleteFiles(paths: string[]) {
   return act(async () => {

@@ -852,6 +852,10 @@ button.year-label:hover { background: var(--sunken); }
 .offline-icon { width: 44px; height: 44px; border-radius: var(--r-lg); display: grid; place-items: center; background: var(--red-soft); color: var(--red); border: 1px solid var(--red-line); }
 
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 18px; align-items: start; }
+.settings-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.local-copy-progress { margin-top: 14px; }
+.local-copy-folder { margin-top: 14px; }
+.local-copy-progress ul { margin: 6px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
 .service-status { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--border); }
 .service-status.service-live { border-color: var(--green-line); }
 .service-status.service-offline { border-color: var(--red-line); }

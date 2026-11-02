@@ -148,6 +148,15 @@ export const files = {
     return data.signedUrl;
   },
 
+  /** Download links for several files at once, by path (a missing file has none) */
+  async signedUrls(relativePaths: string[], seconds = 3600): Promise<Record<string, string>> {
+    const { data, error } = await bucket().createSignedUrls(relativePaths.map(safePath), seconds);
+    if (error) fail('Download', error);
+    const out: Record<string, string> = {};
+    for (const d of data) if (d.path && d.signedUrl) out[d.path] = d.signedUrl;
+    return out;
+  },
+
   async remove(relativePaths: string[]): Promise<string[]> {
     const paths = relativePaths.map(safePath);
     const { data, error } = await bucket().remove(paths);

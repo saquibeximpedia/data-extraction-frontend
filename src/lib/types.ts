@@ -190,7 +190,7 @@ export interface Run {
   id: string;
   trigger: RunTrigger;
   status: RunStatus;
-  params?: { plans?: RunPlan[]; startedBy?: string };
+  params?: { plans?: RunPlan[]; startedBy?: string; options?: RunOptions };
   stats: RunStats;
   error?: string;
   startedAt: string;
@@ -269,4 +269,6 @@ export interface RunOptions {
   rateLimitPerMinute?: number;
   retryMaxAttempts?: number;
   retryDelayMs?: number;
+  /** 'device': the service holds the files for this browser to save into the chosen folder; nothing goes to storage */
+  destination?: 'storage' | 'device';
 }
