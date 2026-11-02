@@ -7,7 +7,18 @@ import { useExtractability } from '@/modules/service/store';
 import { Badge, Icon, revealStyle } from './ui';
 
 /** Where the country's data comes from and how it is fetched: plain text on the page, no card */
-export function SourceInfo({ country, i = 3, source = country.source }: { country: Country; i?: number; source?: Country['source'] }) {
+export function SourceInfo({
+  country,
+  i = 3,
+  source = country.source,
+  downloadOnly = false,
+}: {
+  country: Country;
+  i?: number;
+  source?: Country['source'];
+  /** Links to the source's files only (nothing to extract), though the service lists it */
+  downloadOnly?: boolean;
+}) {
   const extractability = useExtractability();
   const status = country.kind === 'manual' ? null : extractability(country.code);
   const latest = latestPublished(country);
@@ -18,7 +29,7 @@ export function SourceInfo({ country, i = 3, source = country.source }: { countr
     ['Trade flows', country.kind === 'api' && fmtFlows(country.tradeTypes)],
     [
       'Saved HS codes',
-      country.kind === 'api' && (
+      country.kind === 'api' && !downloadOnly && (
         <>
           {fmtNumber(country.hsCodeCount)}
           {country.testHsCodeCount ? <span className="faint"> · {fmtNumber(country.testHsCodeCount)} test</span> : null}
@@ -36,7 +47,7 @@ export function SourceInfo({ country, i = 3, source = country.source }: { countr
     <section className="source-info reveal" style={revealStyle(i)} aria-label="Source">
       <div className="section-head">
         <h2 className="section-title">Source</h2>
-        {country.kind === 'manual' ? (
+        {country.kind === 'manual' || downloadOnly ? (
           <Badge>Download-only</Badge>
         ) : status?.ok ? (
           <Badge tone="green" dot>

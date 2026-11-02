@@ -12,6 +12,7 @@ import { fmtMonth, fmtRange } from '@/lib/format';
 import { MONTH_LABELS, dueMonths, monthState } from '@/lib/months';
 import type { Country } from '@/lib/types';
 import { useApp, useExtractability } from '@/modules/service/store';
+import { isDownloadOnly } from './BulkLinksModal';
 import { ExtractForm, FormHead, type RequestedMonths } from './ExtractForm';
 
 /** Shown instead of the form while the service is down */
@@ -85,9 +86,11 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
   const requestedCountry = countries.find((c) => c.code === code);
   const country = (requestedCountry?.kind === 'api' ? requestedCountry : null) ?? extractable.find((c) => extractability(c.code).ok) ?? extractable[0];
   const info = extractors?.find((e) => e.code === country?.code);
-  // "Bulk file links" picked on the form (countries whose source publishes monthly files), kept per country
+  // "Bulk file links" picked on the form (countries whose source publishes files), kept per country;
+  // download-only countries have nothing else
   const [bulkFor, setBulkFor] = useState<string | null>(null);
-  const bulk = Boolean(info?.bulkDownload) && bulkFor === country?.code;
+  const downloadOnly = isDownloadOnly(info);
+  const bulk = Boolean(info?.bulkDownload) && (bulkFor === country?.code || downloadOnly);
 
   if (service.status === 'offline') return <ServiceDown />;
   if (service.status === 'checking' || !extractors) return <ExtractSkeleton />;
@@ -147,7 +150,7 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
             </div>
           </Panel>
         )}
-        <SourceInfo country={country} i={3} source={bulk ? info?.bulkDownload?.source : undefined} />
+        <SourceInfo country={country} i={3} source={bulk ? info?.bulkDownload?.source : undefined} downloadOnly={downloadOnly} />
       </div>
       <aside className="extract-aside">
         <RecentMonths country={country} />

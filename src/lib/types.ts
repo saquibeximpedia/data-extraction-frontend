@@ -31,11 +31,26 @@ export interface CountrySource {
 }
 
 /** What the extraction service can do for one country (GET {service}/api/countries) */
-/** Monthly files the source publishes, linked to directly from the extract page (nothing is fetched by the service) */
+/** One kind of yearly file (e.g. exports as CSV), for sources publishing a file per year */
+export interface YearFile {
+  label: string;
+  /** A finished year's file, with {YYYY} */
+  yearTemplate: string;
+  /** The current year's file (January to its latest month), with {YYYY} and {MONTH} ("SEPTEMBER") */
+  partialTemplate: string;
+}
+
+/**
+ * Files the source publishes, linked to directly from the extract page (nothing is fetched by the
+ * service): one per month from urlTemplate, or with per 'year' one per year for each of `files`
+ */
 export interface BulkDownload {
   description: string;
+  /** 'month' when missing */
+  per?: 'month' | 'year';
   /** A month's file, with {YYYYMM} for the month */
-  urlTemplate: string;
+  urlTemplate?: string;
+  files?: YearFile[];
   listingUrl: string;
   source: CountrySource;
 }
@@ -48,6 +63,8 @@ export interface ExtractorInfo {
   source: CountrySource;
   /** Monthly files to download straight from the source instead of extracting (null or missing: none) */
   bulkDownload?: BulkDownload | null;
+  /** False for download-only countries: bulkDownload links only (older services don't say: extractable) */
+  extractable?: boolean;
   lagMonths: number;
   publishDay: number;
   /** Earliest month with data (older services don't say) */

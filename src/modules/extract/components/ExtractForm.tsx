@@ -3,13 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, type MonthPreset } from '@/components/ui';
+import { Button, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, Select, type MonthPreset } from '@/components/ui';
 import { fmtFlows, fmtMonth, fmtRange, plural, fmtNumber } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { errorText } from '@/lib/result';
 import type { AppSettings, Country, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
-import { BulkLinksModal } from './BulkLinksModal';
+import { BulkLinksModal, isDownloadOnly } from './BulkLinksModal';
 import { useApp } from '@/modules/service/store';
 
 type Flow = 'ALL' | TradeFlow;
@@ -76,13 +76,25 @@ function useServiceSettings(): AppSettings | null {
   return settings;
 }
 
+/** Years with a file, newest first: from the start month's year to the latest published month's */
+function yearsFor(country: Country): string[] {
+  const latest = latestPublished(country);
+  if (!latest) return [];
+  const first = Number((country.startPeriod ?? latest).slice(0, 4));
+  const years: string[] = [];
+  for (let y = Number(latest.slice(0, 4)); y >= first; y--) years.push(String(y));
+  return years;
+}
+
 /** The form's title, with the country picker beside it */
-export function FormHead({ countrySelect }: { countrySelect: React.ReactNode }) {
+export function FormHead({ countrySelect, downloadOnly }: { countrySelect: React.ReactNode; downloadOnly?: boolean }) {
   return (
     <div className="extract-head">
       <div>
-        <h2 className="panel-title">New extraction</h2>
-        <p className="panel-desc">Runs on the extraction service; follow it live under Extractions.</p>
+        <h2 className="panel-title">{downloadOnly ? 'Download files' : 'New extraction'}</h2>
+        <p className="panel-desc">
+          {downloadOnly ? 'Links to the source’s own files, opened in your browser; nothing is extracted.' : 'Runs on the extraction service; follow it live under Extractions.'}
+        </p>
       </div>
       <div className="extract-country">
         <label className="sr-only" htmlFor="country">
@@ -146,6 +158,15 @@ export function ExtractForm({
   const unpublished = latest ? months.filter((p) => p > latest) : [];
   const beforeStart = country.startPeriod ? months.filter((p) => p < country.startPeriod!) : [];
 
+  // Sources publishing a file per year: one year is picked instead of months; the latest one's file
+  // runs January to the latest month
+  const downloadOnly = isDownloadOnly(info);
+  const yearly = bulk && info.bulkDownload?.per === 'year';
+  const years = yearsFor(country);
+  const [year, setYear] = useState(() => years[0] ?? '');
+  const yearMonths = year ? periodRange(`${year}-01`, year === latest.slice(0, 4) ? latest : `${year}-12`) : [];
+  const linkMonths = yearly ? yearMonths : months;
+
   // Defaults when a field is left empty: the source's own limits, else the service's settings
   const tuningDefaults: Tuning = {
     concurrency: String(info.concurrency ?? settings?.maxConcurrentPerCountry ?? ''),
@@ -203,9 +224,25 @@ export function ExtractForm({
   return (
     <Panel i={1} className="extract-card">
       <div className="extract-form">
-        <FormHead countrySelect={countrySelect} />
+        <FormHead countrySelect={countrySelect} downloadOnly={downloadOnly} />
 
-        <div className="field">
+        {yearly && info.bulkDownload && (
+          <Field label="Year" htmlFor="year">
+            <Select
+              id="year"
+              value={year}
+              onChange={setYear}
+              options={years.map((y) => ({
+                value: y,
+                label: y,
+                hint: y === latest.slice(0, 4) ? `January – ${fmtMonth(latest)}, preliminary` : 'Full year',
+              }))}
+            />
+            <p className="field-help">{info.bulkDownload.description}</p>
+          </Field>
+        )}
+
+        {!yearly && <div className="field">
           <div className="field-head">
             <span className="field-label">{when === 'month' ? 'Month' : 'Months'}</span>
           </div>
@@ -242,9 +279,14 @@ export function ExtractForm({
               {country.startPeriod ? ` Data starts in ${fmtMonth(country.startPeriod)}.` : ''}
             </p>
           )}
-        </div>
+        </div>}
 
-        {info.bulkDownload && (
+        {info.bulkDownload && downloadOnly && !yearly && (
+          <Field label="Method">
+            <p className="field-help">{info.bulkDownload.description}</p>
+          </Field>
+        )}
+        {info.bulkDownload && !downloadOnly && (
           <Field label="Method">
             <Segmented<'api' | 'bulk'>
               label="Method"
@@ -339,23 +381,27 @@ export function ExtractForm({
 
       {bulk && info.bulkDownload && (
         <>
-          {unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet; ${unpublished.length === 1 ? 'its link' : 'their links'} can show an error page.`)}
+          {!yearly && unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet; ${unpublished.length === 1 ? 'its link' : 'their links'} can show an error page.`)}
           <div className="run-summary">
             <dl>
               <div>
-                <dt>Months</dt>
-                <dd>{start ? fmtRange([start, end]) : '—'}</dd>
+                <dt>{yearly ? 'Year' : 'Months'}</dt>
+                <dd>{linkMonths.length ? (yearly ? `${year} · ${fmtRange([linkMonths[0], linkMonths[linkMonths.length - 1]])}` : fmtRange([start, end])) : '—'}</dd>
               </div>
               <div>
                 <dt>Files</dt>
-                <dd>{plural(months.length, 'file')}, both flows, every product</dd>
+                <dd>
+                  {yearly
+                    ? `${plural(info.bulkDownload.files?.length ?? 0, 'file')} (${(info.bulkDownload.files ?? []).map((f) => f.label).join(', ')}), every product`
+                    : `${plural(months.length, 'file')}, both flows, every product`}
+                </dd>
               </div>
             </dl>
-            <Button variant="primary" icon={<Icon.Download size={15} />} disabled={!start || !end} onClick={() => setShowLinks(true)}>
-              Show download links{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
+            <Button variant="primary" icon={<Icon.Download size={15} />} disabled={!linkMonths.length} onClick={() => setShowLinks(true)}>
+              Show download links{!yearly && months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
             </Button>
           </div>
-          <BulkLinksModal open={showLinks} onClose={() => setShowLinks(false)} bulk={info.bulkDownload} periods={months} latest={latest} />
+          <BulkLinksModal open={showLinks} onClose={() => setShowLinks(false)} bulk={info.bulkDownload} periods={linkMonths} latest={latest} />
         </>
       )}
 
