@@ -209,7 +209,7 @@ export function ExtractForm({
     concurrency: String(info.concurrency ?? settings?.maxConcurrentPerCountry ?? ''),
     rateLimitPerMinute: String(info.rateLimitPerMinute ?? 60),
     retryMaxAttempts: String(settings?.retryMaxAttempts ?? ''),
-    retryDelayMs: settings ? String(settings.retryDelayMs / 1000) : '',
+    retryDelayMs: info.retryDelayMs ? String(info.retryDelayMs / 1000) : settings ? String(settings.retryDelayMs / 1000) : '',
   };
   const options: RunOptions = {
     concurrency: tuning.concurrency ? Number(tuning.concurrency) : undefined,

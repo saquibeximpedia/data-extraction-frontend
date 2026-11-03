@@ -80,6 +80,8 @@ export interface ExtractorInfo {
   /** The source's own limits (older services don't say; null: the service setting applies) */
   concurrency?: number | null;
   rateLimitPerMinute?: number;
+  /** Wait before the first retry (null: the service setting applies) */
+  retryDelayMs?: number | null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import 'server-only';
 import { result } from '@/lib/http';
 import { admin } from '@/lib/supabase/server';
-import type { Run } from '@/lib/types';
+import type { Run, RunLog } from '@/lib/types';
 
 const emptyStats = () => ({ planned: 0, completed: 0, noData: 0, failed: 0, skipped: 0, flags: [], invalidHsCodes: {}, files: [] });
 
@@ -39,5 +39,12 @@ export const runs = {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
     const { data } = await result(admin().from('runs').select('*').eq('id', id).maybeSingle(), 'get run');
     return data ? toRun(data) : null;
+  },
+
+  /** A run's stored log lines (saved while it runs and kept after); [] for runs from before logs were kept */
+  async logs(id: string): Promise<RunLog[]> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return [];
+    const { data } = await result(admin().from('run_logs').select('logs').eq('run_id', id).maybeSingle(), 'get run logs');
+    return (data as { logs?: RunLog[] } | null)?.logs ?? [];
   },
 };

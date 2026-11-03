@@ -78,8 +78,38 @@ function AfterRun({ run, countries }: { run: Run; countries: Country[] }) {
   );
 }
 
-/** A finished extraction: its logs are gone, so show what it did */
-function RunSummary({ run, files, countries }: { run: Run; files: ExportFile[] | null; countries: Country[] }) {
+/** Log lines, as the live view and a finished run's stored logs show them */
+function LogRows({ logs }: { logs: RunLog[] }) {
+  return (
+    <>
+      {logs.map((log, i) => (
+        <div key={i} className="log-row">
+          <span className="log-time-col">{fmtTime(log.timestamp)}</span>
+          {log.level !== 'info' && <span className={`log-tag log-tag-${log.level}`}>{log.level.toUpperCase()}</span>}
+          <span className="log-msg-col">{formatLogMessage(log.message)}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function CopyLogsButton({ logs }: { logs: RunLog[] }) {
+  const toast = useToast();
+  if (!logs.length) return null;
+  function copy() {
+    navigator.clipboard
+      ?.writeText(logs.map((l) => `[${fmtTime(l.timestamp)}] ${l.level === 'info' ? '' : `${l.level.toUpperCase()} `}${l.message}`).join('\n'))
+      .then(() => toast('ok', 'Logs copied', plural(logs.length, 'line')));
+  }
+  return (
+    <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copy} className="btn-xs">
+      Copy
+    </Button>
+  );
+}
+
+/** A finished extraction: what it did, and the logs it saved */
+function RunSummary({ run, files, countries, logs }: { run: Run; files: ExportFile[] | null; countries: Country[]; logs: RunLog[] }) {
   return (
     <>
       <StatTiles
@@ -93,13 +123,26 @@ function RunSummary({ run, files, countries }: { run: Run; files: ExportFile[] |
       />
       <RunOutcome run={run} />
       {savesToDevice(run) ? <DeviceFiles run={run} running={false} /> : <RunFiles files={run.stats.files} stored={files} countries={countries} />}
+      {logs.length > 0 && (
+        <div className="run-drawer-panel">
+          <div className="run-drawer-header">
+            <div className="run-drawer-title">
+              <span className="run-drawer-label">Logs</span>
+              <span className="cell-sub run-drawer-count">{plural(logs.length, 'line')}</span>
+            </div>
+            <CopyLogsButton logs={logs} />
+          </div>
+          <div className="logs-panel-view detail-logs">
+            <LogRows logs={logs} />
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 /** A running extraction: streaming logs next to live metrics */
 function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | null; countries: Country[] }) {
-  const toast = useToast();
   const [logs, setLogs] = useState<RunLog[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -140,11 +183,6 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
     setFollowing(true);
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
   }
-  function copyLogs() {
-    navigator.clipboard
-      ?.writeText(logs.map((l) => `[${fmtTime(l.timestamp)}] ${l.message}`).join('\n'))
-      .then(() => toast('ok', 'Logs copied', plural(logs.length, 'line')));
-  }
 
   const breakdown = [
     { label: 'Done, with data', n: s.completed, bullet: 'bullet-done' },
@@ -158,13 +196,9 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
       <div className="run-drawer-header">
         <div className="run-drawer-title">
           <span className="run-drawer-label">Live logs</span>
-          <span className="cell-sub run-drawer-count">{plural(logs.length, 'line')} · cleared when the extraction ends</span>
+          <span className="cell-sub run-drawer-count">{plural(logs.length, 'line')} (the newest) · kept with the extraction when it ends</span>
         </div>
-        {logs.length > 0 && (
-          <Button size="sm" variant="ghost" icon={<Icon.Copy size={12} />} onClick={copyLogs} className="btn-xs">
-            Copy
-          </Button>
-        )}
+        <CopyLogsButton logs={logs} />
       </div>
 
       <div className="run-drawer-body">
@@ -173,13 +207,7 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
             {logs.length === 0 ? (
               <div className="logs-empty">Starting requests and waiting for output…</div>
             ) : (
-              logs.map((log, i) => (
-                <div key={i} className="log-row">
-                  <span className="log-time-col">{fmtTime(log.timestamp)}</span>
-                  {log.level !== 'info' && <span className={`log-tag log-tag-${log.level}`}>{log.level.toUpperCase()}</span>}
-                  <span className="log-msg-col">{formatLogMessage(log.message)}</span>
-                </div>
-              ))
+              <LogRows logs={logs} />
             )}
           </div>
           {!following && (
@@ -245,7 +273,7 @@ function LiveRun({ run, files, countries }: { run: Run; files: ExportFile[] | nu
  * One extraction: flags, then live logs while it runs, or its summary and next step once it
  * ended. The live service's copy wins over the database's; one that just started may only be live.
  */
-export function ExtractionDetail({ id, stored, countries, files }: { id: string; stored: Run | null; countries: Country[]; files: ExportFile[] | null }) {
+export function ExtractionDetail({ id, stored, countries, files, logs }: { id: string; stored: Run | null; countries: Country[]; files: ExportFile[] | null; logs: RunLog[] }) {
   const { liveRuns, serviceLive, service } = useApp();
   const run = liveRuns.find((r) => r.id === id) ?? stored;
 
@@ -305,7 +333,7 @@ export function ExtractionDetail({ id, stored, countries, files }: { id: string;
             </span>
           </div>
         )}
-        {running && serviceLive ? <LiveRun run={run} files={files} countries={countries} /> : <RunSummary run={run} files={files} countries={countries} />}
+        {running && serviceLive ? <LiveRun run={run} files={files} countries={countries} /> : <RunSummary run={run} files={files} countries={countries} logs={logs} />}
       </Panel>
     </>
   );

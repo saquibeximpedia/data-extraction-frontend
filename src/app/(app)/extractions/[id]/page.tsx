@@ -17,7 +17,8 @@ async function filesOf(codes: string[]): Promise<ExportFile[] | null> {
 /** One extraction: live logs while it runs, its results and next step once it ended */
 export default async function ExtractionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [, run, list] = await Promise.all([requireUser(), runs.get(id), countries.list()]);
+  // Logs are optional: a database without the run_logs table still shows the run
+  const [, run, list, logs] = await Promise.all([requireUser(), runs.get(id), countries.list(), runs.logs(id).catch(() => [])]);
   const codes = [...new Set(run?.params?.plans?.map((p) => p.countryCode) ?? [])];
-  return <ExtractionDetail id={id} stored={run} countries={list} files={await filesOf(codes)} />;
+  return <ExtractionDetail id={id} stored={run} countries={list} files={await filesOf(codes)} logs={logs} />;
 }
