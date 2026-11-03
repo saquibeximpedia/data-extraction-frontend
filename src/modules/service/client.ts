@@ -81,6 +81,8 @@ export interface ExtractBody {
   tradeType: string;
   mode: 'complete' | 'test';
   options?: RunOptions;
+  /** A dataset ID read for every month instead of each year's dataset (one flow only) */
+  dataset?: string;
 }
 
 export const extractor = {

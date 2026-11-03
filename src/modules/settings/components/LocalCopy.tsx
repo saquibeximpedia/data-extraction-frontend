@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Field, Panel, ProgressBar, Segmented, useToast } from '@/components/ui';
 import { fmtNumber, fmtSize } from '@/lib/format';
-import { canUseFolders, eachLimited, hasAccess, localSize, pickFolder, saveDestination, savedDestination, savedFolder, writeFile, type Destination, type Dir, type FolderCache } from '@/lib/local-folder';
+import { canUseFolders, eachLimited, hasAccess, isSaved, pickFolder, saveDestination, savedDestination, savedFolder, writeUnpacked, type Destination, type Dir, type FolderCache } from '@/lib/local-folder';
 import { errorText, unwrap } from '@/lib/result';
 import { fileUrls, syncList } from '@/modules/files/actions';
 
@@ -93,7 +93,7 @@ export function LocalCopy() {
       const todo: typeof list = [];
       for (const file of list) {
         if (controller.signal.aborted) return finish('stopped');
-        if ((await localSize(root, file.path, existing)) === file.size) p.have++;
+        if (await isSaved(root, file.path, file.size, existing)) p.have++;
         else todo.push(file);
         p.checked++;
       }
@@ -108,7 +108,7 @@ export function LocalCopy() {
         await eachLimited(batch, PARALLEL, controller.signal, async (file) => {
           try {
             if (!urls[file.path]) throw new Error('no longer in storage');
-            await writeFile(root, file.path, () => fetch(urls[file.path], { signal: controller.signal }), made, controller.signal, (n) => (p.bytes += n));
+            await writeUnpacked(root, file.path, () => fetch(urls[file.path], { signal: controller.signal }), made, controller.signal, (n) => (p.bytes += n));
             p.copied++;
           } catch (err) {
             if (!controller.signal.aborted) p.failed.push(`${file.path}: ${err instanceof Error ? err.message : 'failed'}`);
@@ -156,7 +156,7 @@ export function LocalCopy() {
         </p>
       </Field>
       <p className="foot-summary local-copy-folder">
-        {folder ? <>Folder: <strong>{folder.name}</strong></> : 'No folder chosen yet.'} Laid out as country / year / file, e.g. THA/2026/THA_2026-09.zip.
+        {folder ? <>Folder: <strong>{folder.name}</strong></> : 'No folder chosen yet.'} Laid out as country / year / file, e.g. THA/2026/THA_2026-09.csv, with zips unpacked.
       </p>
       {progress && (
         <div className="local-copy-progress">

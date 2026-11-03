@@ -73,6 +73,10 @@ export interface ExtractorInfo {
   hsCodeHint: string;
   hsCodeCount: number;
   testHsCodeCount: number;
+  /** Requests return every HS code, so runs need no saved list (older services don't say) */
+  allHsCodes?: boolean;
+  /** Datasets the extract page offers to read instead of each year's own (none or missing: the source has no datasets) */
+  datasets?: DatasetRef[];
   /** The source's own limits (older services don't say; null: the service setting applies) */
   concurrency?: number | null;
   rateLimitPerMinute?: number;
@@ -102,6 +106,8 @@ export interface Country {
   hsCodeHint: string;
   hsCodeCount: number; // size of the service's saved list (codes are never sent)
   testHsCodeCount: number;
+  /** Every HS code comes with each month: no saved list needed */
+  allHsCodes: boolean;
   recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out (none before startPeriod)
   completedMonths: string[]; // marked completed by users, oldest first
   extractingMonths: string[]; // an extraction was started; not marked completed yet
@@ -129,6 +135,15 @@ export interface CountryPatch {
   startPeriod?: string;
   /** Download-only: a direct link to the month's Excel/CSV, with {YYYY} {YY} {MM} {M} for the month */
   fileUrl?: string;
+}
+
+/** One flow's years `from`–`to` in one dataset of an open-data portal */
+export interface DatasetRef {
+  flow: TradeFlow;
+  from: number;
+  to: number;
+  /** The dataset's ID, the last part of its link on the portal */
+  id: string;
 }
 
 /** One month's new status; null clears it (back to not done) */

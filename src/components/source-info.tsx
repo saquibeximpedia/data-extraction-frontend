@@ -29,12 +29,16 @@ export function SourceInfo({
     ['Trade flows', country.kind === 'api' && fmtFlows(country.tradeTypes)],
     [
       'Saved HS codes',
-      country.kind === 'api' && !downloadOnly && (
-        <>
-          {fmtNumber(country.hsCodeCount)}
-          {country.testHsCodeCount ? <span className="faint"> · {fmtNumber(country.testHsCodeCount)} test</span> : null}
-        </>
-      ),
+      country.kind === 'api' &&
+        !downloadOnly &&
+        (country.allHsCodes ? (
+          'Not needed: every code comes with each month'
+        ) : (
+          <>
+            {fmtNumber(country.hsCodeCount)}
+            {country.testHsCodeCount ? <span className="faint"> · {fmtNumber(country.testHsCodeCount)} test</span> : null}
+          </>
+        )),
     ],
     ['HS codes accepted', country.hsCodeHint],
     ['Requests', source.endpoint && <span className="mono">{source.endpoint}</span>, true],

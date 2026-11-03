@@ -11,7 +11,7 @@ const MONTH_NAMES = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JU
  * it has bulk links but no saved HS codes to extract
  */
 export const isDownloadOnly = (info: ExtractorInfo | undefined): boolean =>
-  Boolean(info?.bulkDownload) && (info!.extractable === false || (info!.hsCodeCount === 0 && info!.testHsCodeCount === 0));
+  Boolean(info?.bulkDownload) && (info!.extractable === false || (!info!.allHsCodes && info!.hsCodeCount === 0 && info!.testHsCodeCount === 0));
 
 /** A month's file link from the source's pattern: {YYYYMM} → 202608 */
 export const bulkUrl = (bulk: BulkDownload, period: string) => (bulk.urlTemplate ?? '').replace('{YYYYMM}', period.replace('-', ''));

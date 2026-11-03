@@ -57,6 +57,7 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
     hsCodeHint: base?.hsCodeHint ?? '',
     hsCodeCount: base?.hsCodeCount ?? 0,
     testHsCodeCount: base?.testHsCodeCount ?? 0,
+    allHsCodes: Boolean(base?.allHsCodes),
     recentPeriods: recentPublishedPeriods(lagMonths, publishDay, 12).filter((p) => !startPeriod || p >= startPeriod),
     completedMonths: completed,
     extractingMonths: months.filter((m) => m.status === 'extracting').map((m) => m.period),

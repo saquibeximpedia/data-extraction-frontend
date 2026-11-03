@@ -83,7 +83,7 @@ export function hostOf(url: string): string {
 export function describePlan(plan: { countryCode: string; periods?: string[]; tradeTypes?: string[]; hsCodeSource?: string; hsCodeCount?: number; hsCodes?: string[] }): string {
   const count = plan.hsCodeCount ?? plan.hsCodes?.length;
   const kind = plan.hsCodeSource === 'custom' ? 'custom code' : plan.hsCodeSource === 'test' ? 'test code' : 'saved code';
-  const codes = count === undefined ? '' : plural(count, kind);
+  const codes = plan.hsCodeSource === 'all' ? 'every HS code' : count === undefined ? '' : plural(count, kind);
   const flows = plan.tradeTypes?.length ? plan.tradeTypes.map((t) => t.toLowerCase()).join(' & ') : '';
   return [plan.countryCode, fmtRange(plan.periods ?? []), codes, flows].filter(Boolean).join(' · ');
 }

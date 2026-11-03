@@ -12,6 +12,7 @@ import { latestPublished, MONTH_LABELS, monthState, nowPeriod, yearPeriods } fro
 import { unwrap } from '@/lib/result';
 import type { Country, ExportFile, Share } from '@/lib/types';
 import { deleteFiles } from '../actions';
+import { useSaveToFolder } from '../hooks';
 import { ShareModal } from './ShareModal';
 import { SharesList } from './SharesList';
 import { UploadModal } from './UploadModal';
@@ -127,6 +128,7 @@ export function FilesBrowser({
   const [refreshing, startRefresh] = useTransition();
   const changed = useChangedKeys(files.map((f) => ({ key: f.relativePath, signature: f.modifiedAt })));
   const { busy, download } = useDownload();
+  const folder = useSaveToFolder();
   const { busy: deleting, run } = useAction();
 
   const [view, setViewState] = useState(() => viewOf(params));
@@ -194,8 +196,13 @@ export function FilesBrowser({
     }, 'Could not delete');
   }
 
+  /** "Save to folder" in a menu, where this browser can write to a folder */
+  const saveItem = (paths: string[], key = paths.join('|')): MenuItem[] =>
+    folder.supported ? [{ label: 'Save to folder', icon: <Icon.Folder size={15} />, onSelect: () => folder.save(paths, key) }] : [];
+
   const fileActions = (f: ExportFile): MenuItem[] => [
     { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare([f.relativePath]) },
+    ...saveItem([f.relativePath]),
     { label: 'Delete file', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
 
@@ -275,6 +282,7 @@ export function FilesBrowser({
                 label="Options"
                 items={[
                   { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare(paths) },
+                  ...saveItem(paths, set.key),
                   { label: `Delete all ${set.files.length} parts`, icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete(paths) },
                 ]}
               />
@@ -497,6 +505,11 @@ export function FilesBrowser({
         <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
           Share link
         </Button>
+        {folder.supported && (
+          <Button variant="secondary" size="sm" icon={<Icon.Folder size={14} />} loading={folder.busy === 'selection'} onClick={() => folder.save([...selected], 'selection')} title="Save into your data folder, in country and year folders, with zips unpacked">
+            {folder.busy === 'selection' ? `Saving ${folder.progress.done} of ${folder.progress.total}` : 'Save to folder'}
+          </Button>
+        )}
         <Button variant="secondary" size="sm" className="btn-danger-ghost" icon={<Icon.Trash size={14} />} onClick={() => setToDelete([...selected])}>
           Delete
         </Button>

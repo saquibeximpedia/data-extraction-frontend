@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, FileIcon, Icon, ProgressBar, useToast } from '@/components/ui';
 import { fmtNumber, fmtSize, plural } from '@/lib/format';
-import { canUseFolders, eachLimited, hasAccess, pickFolder, savedFolder, writeFile, type Dir, type FolderCache } from '@/lib/local-folder';
+import { canUseFolders, eachLimited, hasAccess, pickFolder, savedFolder, writeUnpacked, type Dir, type FolderCache } from '@/lib/local-folder';
 import { errorText } from '@/lib/result';
 import type { Run } from '@/lib/types';
 import { extractor, type HeldFile } from '@/modules/service/client';
@@ -79,7 +79,7 @@ export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {
       const errors: string[] = [];
       await eachLimited(files, 2, controller.signal, async (file) => {
         try {
-          await writeFile(root, file.path, () => extractor.heldFile(run.id, file.path, controller.signal), cache, controller.signal, (n) => (p.bytes += n));
+          await writeUnpacked(root, file.path, () => extractor.heldFile(run.id, file.path, controller.signal), cache, controller.signal, (n) => (p.bytes += n));
           saved.push(file.path);
           p.done++;
         } catch (err) {

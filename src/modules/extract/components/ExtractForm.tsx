@@ -8,7 +8,7 @@ import { fmtFlows, fmtMonth, fmtRange, plural, fmtNumber } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { hasAccess, pickFolder, savedDestination, savedFolder, type Destination, type Dir } from '@/lib/local-folder';
 import { AppError, errorText } from '@/lib/result';
-import type { AppSettings, Country, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
+import type { AppSettings, Country, DatasetRef, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { BulkLinksModal, isDownloadOnly } from './BulkLinksModal';
 import { useApp } from '@/modules/service/store';
@@ -22,6 +22,12 @@ export interface RequestedMonths {
   start?: string;
   end?: string;
 }
+
+/** The Dataset choices besides a listed dataset's ID */
+const AUTO_DATASET = 'auto';
+const NEW_DATASET = 'new';
+const flowName = (flow: TradeFlow, capital = false) => (flow === 'IMPORT' ? (capital ? 'Imports' : 'imports') : capital ? 'Exports' : 'exports');
+const datasetYears = (d: DatasetRef) => (d.from === d.to ? String(d.from) : d.to >= 2100 ? `from ${d.from}` : `${d.from}–${d.to}`);
 
 const splitCodes = (text: string) => [...new Set(text.split(/[\s,;]+/).filter(Boolean))];
 
@@ -137,6 +143,28 @@ export function ExtractForm({
   const [hsText, setHsText] = useState('');
   const [tuneOpen, setTuneOpen] = useState(false);
   const [tuning, setTuning] = useState<Tuning>(NO_TUNING);
+  // Sources publishing a dataset per year: read one dataset for every month instead (listed, or a new ID)
+  const datasets = info.datasets ?? [];
+  const [datasetChoice, setDatasetChoice] = useState<string>(AUTO_DATASET);
+  const [newDataset, setNewDataset] = useState('');
+  const listedDataset = datasets.find((d) => d.id === datasetChoice);
+  const dataset = datasetChoice === AUTO_DATASET ? undefined : datasetChoice === NEW_DATASET ? newDataset.trim() : datasetChoice;
+  const datasetError =
+    datasetChoice === NEW_DATASET && !dataset
+      ? 'Enter the dataset ID: the last part of its link on the portal'
+      : dataset && !/^[\w-]{1,200}$/.test(dataset)
+        ? 'Use letters, digits, - and _ only, e.g. import-2027'
+        : dataset && flow === 'ALL'
+          ? 'A dataset holds one flow: pick Import or Export above'
+          : listedDataset && flow !== listedDataset.flow
+            ? `${listedDataset.id} holds ${flowName(listedDataset.flow)}: pick ${listedDataset.flow === 'IMPORT' ? 'Import' : 'Export'} above`
+            : '';
+  const pickDataset = (value: string) => {
+    setDatasetChoice(value);
+    // A listed dataset holds one flow: the form follows it
+    const picked = datasets.find((d) => d.id === value);
+    if (picked) setFlow(picked.flow);
+  };
   const settings = useServiceSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -216,6 +244,7 @@ export function ExtractForm({
         tradeType: flow,
         mode: effectiveMode,
         options: runOptions,
+        ...(dataset && { dataset }),
       });
       // Its page finds it among the live runs before the database has it
       await refreshLiveRuns();
@@ -340,12 +369,52 @@ export function ExtractForm({
                   value={effectiveMode}
                   onChange={setMode}
                   options={[
-                    { value: 'complete', label: `Complete · ${fmtNumber(info.hsCodeCount)}` },
+                    { value: 'complete', label: info.allHsCodes ? 'Complete · every code' : `Complete · ${fmtNumber(info.hsCodeCount)}` },
                     { value: 'test', label: `Test · ${fmtNumber(info.testHsCodeCount)}`, disabled: isProd || !info.testHsCodeCount },
                   ]}
                 />
               </Field>
             </div>
+
+            {datasets.length > 0 && (
+              <div className="extract-dataset">
+                <Field label="Dataset" htmlFor="dataset">
+                  <Select
+                    id="dataset"
+                    value={datasetChoice}
+                    onChange={pickDataset}
+                    options={[
+                      { value: AUTO_DATASET, label: 'Automatic', hint: "Each month reads its year's dataset" },
+                      ...[...datasets]
+                        .sort((a, b) => b.flow.localeCompare(a.flow) || b.from - a.from)
+                        .map((d) => ({ value: d.id, label: d.id, hint: `${flowName(d.flow, true)} · ${datasetYears(d)}` })),
+                      { value: NEW_DATASET, label: 'New dataset ID…', hint: "One not listed yet, e.g. next year's" },
+                    ]}
+                  />
+                  {datasetChoice === NEW_DATASET && (
+                    <input
+                      id="dataset-new"
+                      className="control mono"
+                      aria-label="New dataset ID"
+                      placeholder={flow === 'EXPORT' ? 'e.g. total-exports-2027' : 'e.g. import-2027'}
+                      value={newDataset}
+                      spellCheck={false}
+                      autoFocus
+                      onChange={(e) => setNewDataset(e.target.value)}
+                    />
+                  )}
+                  {datasetError ? (
+                    <p className="field-error">{datasetError}</p>
+                  ) : (
+                    <p className="field-help">
+                      {dataset
+                        ? 'Read for every month of this run; a dataset of another year returns no rows for these months.'
+                        : "Pick a dataset to read it for every month of this run, or enter a new one's ID."}
+                    </p>
+                  )}
+                </Field>
+              </div>
+            )}
 
             {/* Rarely changed, so two small toggles; their fields open below */}
             <div className="more-options">
@@ -392,6 +461,7 @@ export function ExtractForm({
                 </p>
               </div>
             )}
+
           </>
         )}
       </div>
@@ -463,7 +533,13 @@ export function ExtractForm({
               </div>
               <div>
                 <dt>HS codes</dt>
-                <dd>{useCodes ? plural(codes.length, 'custom code') : `${fmtNumber(savedCount)} ${effectiveMode}`}</dd>
+                <dd>
+                  {useCodes
+                    ? plural(codes.length, 'custom code')
+                    : info.allHsCodes && effectiveMode === 'complete'
+                      ? 'Every HS code'
+                      : `${fmtNumber(savedCount)} ${effectiveMode}`}
+                </dd>
               </div>
               <div>
                 <dt>Saved to</dt>
@@ -473,6 +549,12 @@ export function ExtractForm({
                   </Link>
                 </dd>
               </div>
+              {dataset && (
+                <div>
+                  <dt>Dataset</dt>
+                  <dd className="mono">{dataset}</dd>
+                </div>
+              )}
               {tuned > 0 && (
                 <div>
                   <dt>Threads</dt>
@@ -480,7 +562,7 @@ export function ExtractForm({
                 </div>
               )}
             </dl>
-            <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
+            <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || Boolean(datasetError) || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
               Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
             </Button>
           </div>

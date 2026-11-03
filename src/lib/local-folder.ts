@@ -118,6 +118,62 @@ export async function writeFile(root: Dir, path: string, open: () => Promise<Res
   }
 }
 
+export const isZip = (path: string) => /\.zip$/i.test(path);
+
+/** A path inside a zip made safe to write under a folder: no leading slash, "." or ".." */
+const safeEntry = (name: string) =>
+  name
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((seg) => seg && seg !== '.' && seg !== '..')
+    .join('/');
+
+/**
+ * Writes a download to `path` under `root` like writeFile, except that a zip is unpacked: its
+ * files go beside it ("THA/2026/THA_2026-09.zip" → "THA/2026/THA_2026-09.csv"), and the zip itself
+ * isn't kept. Returns how many files were written.
+ */
+export async function writeUnpacked(root: Dir, path: string, open: () => Promise<Response>, cache: FolderCache, signal: AbortSignal, onBytes: (n: number) => void): Promise<number> {
+  if (!isZip(path)) {
+    await writeFile(root, path, open, cache, signal, onBytes);
+    return 1;
+  }
+  const res = await open();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.arrayBuffer();
+  onBytes(data.byteLength);
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(data);
+  const folder = path.slice(0, path.lastIndexOf('/') + 1);
+  const entries = Object.values(zip.files).filter((e) => !e.dir && safeEntry(e.name));
+  for (const entry of entries) {
+    if (signal.aborted) break;
+    await writeFile(root, folder + safeEntry(entry.name), async () => new Response(await entry.async('blob')), cache, signal, () => {});
+  }
+  // A copy of the zip saved here before (when zips weren't unpacked) has done its job
+  if (!signal.aborted && !entries.some((e) => safeEntry(e.name) === path.slice(folder.length))) {
+    const [dirPath, name] = splitPath(path);
+    await (await folderAt(root, dirPath, false, cache))?.removeEntry(name).catch(() => {});
+  }
+  return entries.length;
+}
+
+/**
+ * Whether a stored file is already in the folder: the same size, or for a zip, its unpacked files
+ * ("THA_2026-09.zip" → any "THA_2026-09.*" beside it; a zip re-extracted since isn't noticed).
+ */
+export async function isSaved(root: Dir, path: string, size: number, cache: FolderCache): Promise<boolean> {
+  if (!isZip(path)) return (await localSize(root, path, cache)) === size;
+  const [dirPath, name] = splitPath(path);
+  const dir = await folderAt(root, dirPath, false, cache);
+  if (!dir) return false;
+  const base = `${name.slice(0, -4)}.`;
+  for await (const entry of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
+    if (entry.startsWith(base) && !isZip(entry)) return true;
+  }
+  return false;
+}
+
 /** Runs `task` on each item, `parallel` at a time, until done or stopped */
 export async function eachLimited<T>(items: T[], parallel: number, signal: AbortSignal, task: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];

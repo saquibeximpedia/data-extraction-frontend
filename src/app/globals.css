@@ -409,6 +409,9 @@ svg { flex: none; }
    Popovers, menus, month picker
    ============================================================ */
 .popover-root { position: relative; }
+/* A revealed block is its own layer (its animation keeps a transform), so later blocks paint over
+   its popovers; the block holding an open one is lifted above them */
+.reveal:has(.popover) { position: relative; z-index: 30; }
 .popover { position: absolute; top: calc(100% + 6px); z-index: 40; padding: 5px; border-radius: var(--r-lg); transform-origin: top; animation: pop 0.14s var(--ease) both; }
 .popover-start { left: 0; }
 .popover-end { right: 0; transform-origin: top right; }
@@ -881,6 +884,9 @@ button.year-label:hover { background: var(--sunken); }
 /* Extract form: per-run tuning */
 .tuning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 4px; }
 .tuning-grid + .field-help { margin-top: 10px; }
+.field-error { font-size: 12px; color: var(--red); margin-top: 6px; }
+.extract-dataset { margin-top: 16px; }
+.extract-dataset .control { margin-top: 8px; }
 
 .setup-panel { border-color: var(--amber-line); }
 .setup-icon { width: 36px; height: 36px; background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
