@@ -783,7 +783,6 @@ button.year-label:hover { background: var(--sunken); }
 .files-subbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .files-tools { flex: 0 1 380px; justify-content: flex-end; flex-wrap: nowrap; }
 .files-tools .search-sm { flex: 1 1 220px; height: 40px; }
-.filter-btn { flex: none; font-variant-numeric: tabular-nums; }
 
 .file-list { list-style: none; margin: 0; padding: 0; display: grid; }
 .file-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px; border-radius: var(--r); transition: background 0.12s; }
@@ -833,7 +832,6 @@ button.year-label:hover { background: var(--sunken); }
 .crumbs > span { display: inline-flex; align-items: center; gap: 4px; }
 .crumb { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 .crumb:hover { text-decoration: underline; }
-.month-list-missing { font-size: 12.5px; color: var(--faint); padding: 0 8px; }
 
 .selection-dock { position: fixed; left: 0; right: 0; bottom: 20px; z-index: 40; display: flex; justify-content: center; pointer-events: none; transform: translateY(120%); opacity: 0; transition: transform 0.3s var(--ease), opacity 0.2s; }
 .selection-dock.on { transform: none; opacity: 1; }
