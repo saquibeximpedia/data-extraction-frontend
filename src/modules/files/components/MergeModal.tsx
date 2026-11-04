@@ -104,6 +104,11 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
               <b>{fmtNumber(job.rowsWritten)} rows</b> from {plural(job.sources.length, 'file')} saved as {job.outputs.length > 1 ? `${job.outputs.length} parts of up to 9 lakh rows` : 'one file'} in <span className="mono">merged/{job.name}/</span>. Every row was counted before and after writing.
             </p>
           )}
+          {job.status === 'COMPLETED' && job.onServer.length > 0 && (
+            <p className="field-help">
+              {job.onServer.length === job.outputs.length ? (job.outputs.length > 1 ? 'They are' : 'It is') : `${plural(job.onServer.length, 'part')} ${job.onServer.length > 1 ? 'are' : 'is'}`} kept on the server, not in the cloud: {job.onServer[0].reason}. Find {job.onServer.length > 1 ? 'them' : 'it'} under Merged, marked On server.
+            </p>
+          )}
           {job.status === 'FAILED' && (
             <div className="note note-error note-tight" role="alert">
               <Icon.Alert />

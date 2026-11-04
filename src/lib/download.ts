@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { fileUrl } from '@/modules/files/actions';
+import { extractor } from '@/modules/service/client';
 import { useToast } from '@/components/ui';
 import { AppError, errorText, unwrap } from './result';
 
@@ -47,16 +48,27 @@ async function saveZip(url: string, paths: string[]): Promise<void> {
   setTimeout(() => frame.remove(), 60_000);
 }
 
-/** Downloads stored files: one through a short-lived signed link, several as one zip. `busy` is the key being downloaded. */
-export function useDownload() {
+/**
+ * Downloads stored files: one through a short-lived signed link, several as one zip. Files kept on
+ * the extraction service (`isOnServer`) come straight from it, each as its own download. `busy`
+ * is the key being downloaded.
+ */
+export function useDownload(isOnServer: (path: string) => boolean = () => false) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
   async function download(paths: string[], key = paths.join('|')) {
     setBusy(key);
     try {
-      if (paths.length === 1) saveFrom(await unwrap(fileUrl(paths[0])));
-      else await saveZip('/api/files/zip', paths);
+      const onServer = paths.filter(isOnServer);
+      const cloud = paths.filter((p) => !isOnServer(p));
+      if (onServer.length) {
+        const links = await extractor.serverFileLinks(onServer);
+        // A moment apart, or the browser keeps only the first of several downloads
+        for (const [i, p] of onServer.entries()) setTimeout(() => saveFrom(links[p]), i * 400);
+      }
+      if (cloud.length === 1) saveFrom(await unwrap(fileUrl(cloud[0])));
+      else if (cloud.length) await saveZip('/api/files/zip', cloud);
     } catch (err) {
       toast('err', 'Could not download', errorText(err));
     } finally {

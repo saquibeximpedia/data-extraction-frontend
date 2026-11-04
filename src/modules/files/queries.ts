@@ -1,6 +1,6 @@
 import 'server-only';
 import { zipStream } from '@/lib/zip';
-import { UPLOAD_TYPES } from '@/lib/files';
+import { describe, TEST_FOLDER, UPLOAD_TYPES } from '@/lib/files';
 import { badRequest, HttpError, notFound, result } from '@/lib/http';
 import { fileUrlFor } from '@/lib/months';
 import { admin, BUCKET } from '@/lib/supabase/server';
@@ -22,13 +22,6 @@ function fail(action: string, error: { message: string }): never {
   throw new HttpError(502, `${action}: ${error.message}`);
 }
 
-// {CC}_{YYYY-MM}_{FLOW}.zip or {CC}_{YYYY-MM}_{FLOW}_part{N}.zip (extracted)
-const EXTRACTED_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})_(IMPORT|EXPORT)(?:_part(\d+))?\.(csv|zip)$/i;
-// {CC}_{YYYY-MM}__{original name} (uploaded)
-const UPLOADED_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})__.+$/i;
-// merged/{name}/{name}.zip or {name}_part{N}.zip
-const MERGED_FOLDER = 'merged';
-const PART_RE = /_part(\d+)\.[a-z0-9]+$/i;
 /** Folders below the bucket: _test/{CC}/{YYYY}/{MM}/{FLOW} is the deepest */
 const MAX_DEPTH = 6;
 
@@ -82,24 +75,6 @@ function extensionOf(name: string, contentType: string): string | null {
   return null;
 }
 
-/** Files of runs on the test HS codes sit under this top folder, apart from the real data */
-const TEST_FOLDER = '_test';
-
-function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'flow' | 'origin' | 'part' | 'test'> {
-  const test = relativePath.startsWith(`${TEST_FOLDER}/`);
-  const name = relativePath.split('/').pop() ?? '';
-  const none = { countryCode: null, period: null, flow: null, part: null, test };
-  if (relativePath.startsWith(`${MERGED_FOLDER}/`)) {
-    const part = name.match(PART_RE)?.[1];
-    return { ...none, origin: 'merged', part: part ? Number(part) : null };
-  }
-  const e = name.match(EXTRACTED_RE);
-  if (e) return { countryCode: e[1].toUpperCase(), period: e[2], flow: e[3].toUpperCase() as 'IMPORT' | 'EXPORT', origin: 'extracted', part: e[4] ? Number(e[4]) : null, test };
-  const u = name.match(UPLOADED_RE);
-  if (u) return { ...none, countryCode: u[1].toUpperCase(), period: u[2], origin: 'uploaded' };
-  return { ...none, origin: 'uploaded' };
-}
-
 /** Fails with a clear message when SUPABASE_BUCKET is not a bucket of this project */
 async function assertBucket(): Promise<void> {
   const { error } = await admin().storage.getBucket(BUCKET);
@@ -141,6 +116,7 @@ export const files = {
               modifiedAt: entry.updated_at ?? entry.created_at ?? '',
               ...describe(path),
               uploadedBy: uploaders.get(path) ?? null,
+              location: 'cloud',
             });
           }
         }

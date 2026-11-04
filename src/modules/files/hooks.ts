@@ -5,6 +5,7 @@ import { useToast } from '@/components/ui';
 import { plural } from '@/lib/format';
 import { canUseFolders, eachLimited, hasAccess, pickFolder, savedFolder, writeUnpacked, type FolderCache } from '@/lib/local-folder';
 import { errorText, unwrap } from '@/lib/result';
+import { extractor } from '@/modules/service/client';
 import { fileUrls } from './actions';
 
 /** Files fetched and written at once */
@@ -16,7 +17,7 @@ const PARALLEL = 3;
  * there is replaced. `busy` is the key being saved; `progress` counts the stored files done.
  * Needs Chrome or Edge.
  */
-export function useSaveToFolder() {
+export function useSaveToFolder(isOnServer: (path: string) => boolean = () => false) {
   const toast = useToast();
   const [supported, setSupported] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,7 +41,10 @@ export function useSaveToFolder() {
     const failed: string[] = [];
     let written = 0;
     try {
-      const urls = await unwrap(fileUrls(paths));
+      // Files kept on the extraction service come from it; the rest from storage
+      const onServer = paths.filter(isOnServer);
+      const cloud = paths.filter((p) => !isOnServer(p));
+      const urls = { ...(cloud.length ? await unwrap(fileUrls(cloud)) : {}), ...(onServer.length ? await extractor.serverFileLinks(onServer) : {}) };
       await eachLimited(paths, PARALLEL, controller.signal, async (path) => {
         try {
           if (!urls[path]) throw new Error('no longer in storage');

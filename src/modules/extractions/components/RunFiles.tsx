@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Badge, Button, FileIcon, Icon } from '@/components/ui';
 import { useDownload } from '@/lib/download';
 import { fmtMonth, fmtSize, plural } from '@/lib/format';
+import { useServerFiles } from '@/lib/server-files';
 import type { Country, ExportFile } from '@/lib/types';
 
 // {CC}_{YYYY-MM}_{FLOW}.zip or {CC}_{YYYY-MM}_{FLOW}_part{N}.zip; runs from before files were kept per flow: {CC}_{YYYY-MM}[_part{N}].csv
@@ -13,12 +14,16 @@ const FLOW_LABEL: Record<string, string> = { IMPORT: 'Import', EXPORT: 'Export' 
 /**
  * The files a run saved, grouped by country, month and flow (a big month comes in parts): each file
  * with its size from storage and a download, each month and the whole run as one zip. Files
- * deleted since are marked Deleted; each country links to all of its files. `stored` is null
- * when storage couldn't be listed (every file is then offered).
+ * deleted since are marked Deleted, and files the cloud couldn't take On server (they are kept on
+ * the extraction service); each country links to all of its files. `stored` is null when storage
+ * couldn't be listed (every file is then offered).
  */
-export function RunFiles({ files, stored, countries }: { files: string[]; stored: ExportFile[] | null; countries: Country[] }) {
-  const { busy, download } = useDownload();
+export function RunFiles({ files, stored: cloud, countries }: { files: string[]; stored: ExportFile[] | null; countries: Country[] }) {
+  const server = useServerFiles();
+  const onServer = new Set(server.files.map((f) => f.relativePath));
+  const { busy, download } = useDownload((p) => onServer.has(p) && !cloud?.some((f) => f.relativePath === p));
   if (!files.length) return null;
+  const stored = cloud && [...cloud, ...server.files];
 
   const rows = [...files].sort().map((path) => {
     const name = path.split('/').pop() ?? path;
@@ -111,6 +116,11 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
                           {gone && (
                             <Badge tone="red" dot>
                               Deleted
+                            </Badge>
+                          )}
+                          {r.stored?.location === 'server' && (
+                            <Badge tone="amber" dot>
+                              On server
                             </Badge>
                           )}
                         </span>

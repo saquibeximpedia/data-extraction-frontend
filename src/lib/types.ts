@@ -231,6 +231,11 @@ export interface ExportFile {
   uploadedBy: string | null;
   /** Written by a run on the test HS codes (stored under _test/, apart from the real data) */
   test: boolean;
+  /**
+   * 'cloud': in Supabase Storage. 'server': kept on the extraction service because Storage couldn't
+   * take it (over one upload, or the upload failed); downloaded through the service, until deleted
+   */
+  location: 'cloud' | 'server';
 }
 
 /** A file in a share link, as it was when the link was made */
@@ -284,6 +289,8 @@ export interface MergeJob {
   rowsWritten: number;
   /** The merged file, or its parts */
   outputs: string[];
+  /** Outputs kept on the server instead of the cloud, with why */
+  onServer: { path: string; reason: string }[];
   error?: string;
 }
 

@@ -73,6 +73,13 @@ export interface HeldFile {
   size: number;
 }
 
+/** A file kept on the service instead of Storage, laid out as in Storage */
+export interface ServerFile {
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
 export interface ExtractBody {
   countryCode: string;
   startDate: string;
@@ -100,6 +107,12 @@ export const extractor = {
   heldFile: (id: string, path: string, signal?: AbortSignal) => serviceRaw(`/api/runs/${id}/held/file?path=${encodeURIComponent(path)}`, { signal }),
   /** Drops held files once they are in the folder */
   clearHeld: (id: string, paths: string[]) => service<{ success: boolean }>(`/api/runs/${id}/held`, json('DELETE', { paths })),
+  /** Files kept on the service because Storage couldn't take them */
+  serverFiles: () => service<{ files: ServerFile[] }>('/api/server-files').then((r) => r.files),
+  /** Download links for files kept on the service, by path: full addresses that need no sign-in, for an hour */
+  serverFileLinks: (paths: string[]) =>
+    service<{ links: Record<string, string> }>('/api/server-files/links', json('POST', { paths })).then((r) => Object.fromEntries(Object.entries(r.links).map(([p, link]) => [p, serviceUrl() + link]))),
+  deleteServerFiles: (paths: string[]) => service<{ success: boolean }>('/api/server-files', json('DELETE', { paths })),
   /** Merges stored folders and files into merged/{name}/, in the background */
   merge: (paths: string[], name?: string) => service<MergeJob>('/api/merges', json('POST', { paths, name: name || undefined })),
   /** A merge's progress */

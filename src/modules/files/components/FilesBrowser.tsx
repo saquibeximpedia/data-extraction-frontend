@@ -7,8 +7,10 @@ import { useDownload } from '@/lib/download';
 import { displayName } from '@/lib/files';
 import { fmtMonth, fmtNumber, fmtSize, plural } from '@/lib/format';
 import { useAction, useChangedKeys } from '@/lib/hooks';
+import { useServerFiles } from '@/lib/server-files';
 import { unwrap } from '@/lib/result';
 import type { Country, ExportFile, Share } from '@/lib/types';
+import { extractor } from '@/modules/service/client';
 import { deleteFiles } from '../actions';
 import { useSaveToFolder } from '../hooks';
 import { MergeModal } from './MergeModal';
@@ -95,6 +97,17 @@ function Check({ checked, indeterminate, onChange, label }: { checked: boolean; 
   );
 }
 
+/** Marks a file kept on the extraction service instead of the cloud */
+function ServerBadge() {
+  return (
+    <span title="Too big for the cloud, or its upload failed: kept on the extraction service until deleted here. Downloads come from the service, so it must be running; share links can't include it.">
+      <Badge tone="amber" dot>
+        On server
+      </Badge>
+    </span>
+  );
+}
+
 /** How much of the storage plan the files take */
 function StorageMeter({ used }: { used: number }) {
   const pct = Math.min(100, (used / STORAGE_LIMIT) * 100);
@@ -121,13 +134,14 @@ function StorageMeter({ used }: { used: number }) {
  * reloading the page.
  */
 export function FilesBrowser({
-  files,
+  files: cloudFiles,
   filesError,
   countries,
   shares,
   sharesError,
   params,
 }: {
+  /** Files in Storage (those kept on the extraction service are listed from this browser) */
   files: ExportFile[];
   filesError: string;
   countries: Country[];
@@ -138,9 +152,19 @@ export function FilesBrowser({
 }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
+  const server = useServerFiles();
+  // Files kept on the server beside the stored ones, newest first; one in both places shows once, from the cloud
+  const files = useMemo(() => {
+    const inCloud = new Set(pathsOf(cloudFiles));
+    return [...cloudFiles, ...server.files.filter((f) => !inCloud.has(f.relativePath))].sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  }, [cloudFiles, server.files]);
+  const onServer = useMemo(() => new Set(pathsOf(files.filter((f) => f.location === 'server'))), [files]);
+  const isOnServer = (path: string) => onServer.has(path);
+  /** Share links serve files from storage, so files kept on the server can't be shared */
+  const shareable = (paths: string[]) => paths.filter((p) => !isOnServer(p));
   const changed = useChangedKeys(files.map((f) => ({ key: f.relativePath, signature: f.modifiedAt })));
-  const { busy, download } = useDownload();
-  const folder = useSaveToFolder();
+  const { busy, download } = useDownload(isOnServer);
+  const folder = useSaveToFolder(isOnServer);
   const { busy: deleting, run } = useAction();
 
   const [view, setViewState] = useState(() => viewOf(params));
@@ -205,18 +229,35 @@ export function FilesBrowser({
   function confirmDelete() {
     if (!toDelete) return;
     const paths = toDelete;
-    run(() => unwrap(deleteFiles(paths)), (deleted) => `Deleted ${plural(deleted.length, 'file')}`, () => {
+    // Each file is removed where it is: storage, or the server
+    const remove = async () => {
+      const there = paths.filter(isOnServer);
+      const cloud = paths.filter((p) => !isOnServer(p));
+      const deleted = cloud.length ? await unwrap(deleteFiles(cloud)) : [];
+      if (there.length) {
+        await extractor.deleteServerFiles(there);
+        await server.refresh();
+      }
+      return [...deleted, ...there];
+    };
+    run(remove, (deleted) => `Deleted ${plural(deleted.length, 'file')}`, () => {
       toggle(paths, false);
       setToDelete(null);
     }, 'Could not delete');
   }
+
+  /** "Share link" in a menu, for the files that are in storage */
+  const shareItem = (paths: string[]): MenuItem[] => {
+    const ok = shareable(paths);
+    return ok.length ? [{ label: ok.length < paths.length ? `Share link (${plural(ok.length, 'file')} in the cloud)` : 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare(ok) }] : [];
+  };
 
   /** "Save to folder" in a menu, where this browser can write to a folder */
   const saveItem = (paths: string[], key = paths.join('|')): MenuItem[] =>
     folder.supported ? [{ label: 'Save to folder', icon: <Icon.Folder size={15} />, onSelect: () => folder.save(paths, key) }] : [];
 
   const fileActions = (f: ExportFile): MenuItem[] => [
-    { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare([f.relativePath]) },
+    ...(isOnServer(f.relativePath) ? [] : [{ label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare([f.relativePath]) }]),
     ...saveItem([f.relativePath]),
     { label: 'Delete file', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
@@ -251,7 +292,10 @@ export function FilesBrowser({
         {selecting && <Check {...checkFor([f.relativePath], `Select ${f.fileName}`)} />}
         <FileIcon name={f.fileName} />
         <span className="file-row-text" title={f.relativePath}>
-          <span className="file-row-name">{f.origin === 'uploaded' ? displayName(f.fileName) : f.fileName}</span>
+          <span className="file-row-name">
+            {f.origin === 'uploaded' ? displayName(f.fileName) : f.fileName}{' '}
+            {f.location === 'server' && <ServerBadge />}
+          </span>
           <span className="file-row-meta">
             {showWhere && where(f)}
             {of ? `Part ${f.part} of ${of.files.length} · ` : ''}
@@ -306,7 +350,7 @@ export function FilesBrowser({
               <Menu
                 label="Options"
                 items={[
-                  { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare(paths) },
+                  ...shareItem(paths),
                   ...saveItem(paths, set.key),
                   { label: `Delete all ${set.files.length} parts`, icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete(paths) },
                 ]}
@@ -353,7 +397,7 @@ export function FilesBrowser({
               label="Folder options"
               items={[
                 ...mergeItem(inside),
-                { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare(paths) },
+                ...shareItem(paths),
                 ...saveItem(paths, key),
                 { label: `Delete ${plural(inside.length, 'file')}`, icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete(paths) },
               ]}
@@ -464,12 +508,25 @@ export function FilesBrowser({
           </span>
         </div>
       )}
+      {server.error && (
+        <div className="note note-warn note-tight" role="status">
+          <Icon.Alert />
+          <span>
+            <b>Files kept on the extraction service are not shown</b> (the ones the cloud couldn&apos;t take): {server.error}
+          </span>
+        </div>
+      )}
       <div className="files-layout reveal" style={revealStyle(1)}>
         <aside className="files-side" aria-label="Countries">
           <Button variant="primary" icon={<Icon.Upload size={15} />} onClick={() => setUploading(true)}>
             Upload files
           </Button>
-          <StorageMeter used={sizeOf(files)} />
+          <StorageMeter used={sizeOf(cloudFiles)} />
+          {onServer.size > 0 && (
+            <span className="side-meta padded-side" title="Files the cloud couldn't take, kept on the extraction service until deleted here">
+              {plural(onServer.size, 'file')} on the server · {fmtSize(sizeOf(files.filter((f) => f.location === 'server')))}
+            </span>
+          )}
 
           <nav className="side-list">
             <button type="button" className={`side-item ${view === RECENT && !q ? 'active' : ''}`} onClick={() => setView(RECENT)}>
@@ -501,7 +558,10 @@ export function FilesBrowser({
             )}
           </nav>
 
-          <Button size="sm" variant="ghost" icon={<Icon.Refresh size={14} />} loading={refreshing} onClick={() => startRefresh(() => router.refresh())} className="side-refresh">
+          <Button size="sm" variant="ghost" icon={<Icon.Refresh size={14} />} loading={refreshing} onClick={() => {
+            void server.refresh();
+            startRefresh(() => router.refresh());
+          }} className="side-refresh">
             Refresh
           </Button>
         </aside>
@@ -551,9 +611,11 @@ export function FilesBrowser({
             Merge
           </Button>
         )}
-        <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
-          Share link
-        </Button>
+        {shareable([...selected]).length > 0 && (
+          <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare(shareable([...selected]))} title={shareable([...selected]).length < selected.size ? 'Files kept on the server are left out of share links' : undefined}>
+            Share link
+          </Button>
+        )}
         {folder.supported && (
           <Button variant="secondary" size="sm" icon={<Icon.Folder size={14} />} loading={folder.busy === 'selection'} onClick={() => folder.save([...selected], 'selection')} title="Save into your data folder, in the same folders as in storage, with zips unpacked">
             {folder.busy === 'selection' ? `Saving ${folder.progress.done} of ${folder.progress.total}` : 'Save to folder'}
@@ -568,7 +630,15 @@ export function FilesBrowser({
       <UploadModal open={uploading} onClose={() => setUploading(false)} countries={countries} initialCode={group && !group.test && group.key !== MERGED && group.code !== 'Other' ? group.code : undefined} />
       {/* Once the link is made the selection has done its job; closing without one keeps it */}
       <ShareModal paths={toShare} onClose={() => setToShare(null)} onCreated={stopSelecting} />
-      <MergeModal files={toMerge} onClose={() => setToMerge(null)} onDone={stopSelecting} />
+      <MergeModal
+        files={toMerge}
+        onClose={() => setToMerge(null)}
+        onDone={() => {
+          stopSelecting();
+          // A merge too big for the cloud is kept on the server
+          void server.refresh();
+        }}
+      />
       <ConfirmModal
         open={Boolean(toDelete)}
         onClose={() => setToDelete(null)}
