@@ -2,23 +2,24 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { MarkCompletedButton, RemoveMonthsButton } from '@/components/month-actions';
 import { Badge, Button, CodeTag, ConfirmModal, Dock, Empty, FileIcon, Icon, Menu, revealStyle, SearchInput, When, type MenuItem } from '@/components/ui';
 import { useDownload } from '@/lib/download';
 import { displayName } from '@/lib/files';
 import { fmtMonth, fmtNumber, fmtSize, plural } from '@/lib/format';
 import { useAction, useChangedKeys } from '@/lib/hooks';
-import { latestPublished, MONTH_LABELS, monthState, nowPeriod, yearPeriods } from '@/lib/months';
 import { unwrap } from '@/lib/result';
 import type { Country, ExportFile, Share } from '@/lib/types';
 import { deleteFiles } from '../actions';
 import { useSaveToFolder } from '../hooks';
+import { MergeModal } from './MergeModal';
 import { ShareModal } from './ShareModal';
 import { SharesList } from './SharesList';
 import { UploadModal } from './UploadModal';
 
 const RECENT = 'RECENT';
 const SHARES = 'SHARES';
+/** Files written by merges (under merged/) */
+const MERGED = 'MERGED';
 /** A country's test files are their own view ("TEST:EU"), apart from its real data */
 const TEST = 'TEST:';
 
@@ -29,15 +30,25 @@ const STORAGE_LIMIT = (Number(process.env.NEXT_PUBLIC_STORAGE_LIMIT_MB) || 1024)
 
 const sizeOf = (files: ExportFile[]) => files.reduce((n, f) => n + f.sizeBytes, 0);
 const pathsOf = (files: ExportFile[]) => files.map((f) => f.relativePath);
-const yearOf = (f: ExportFile) => f.period?.slice(0, 4) ?? 'Other';
-/** The sidebar entry a file belongs to: its country, or its country's test files */
-const groupOf = (f: ExportFile) => `${f.test ? TEST : ''}${f.countryCode ?? 'Other'}`;
+/** The sidebar entry a file belongs to: its country, its country's test files, or the merged files */
+const groupOf = (f: ExportFile) => (f.origin === 'merged' ? MERGED : `${f.test ? TEST : ''}${f.countryCode ?? 'Other'}`);
+/** Where a sidebar entry's folders start in storage */
+const rootOf = (key: string) => (key === MERGED ? 'merged' : key.startsWith(TEST) ? `_test/${key.slice(TEST.length)}` : key);
+const FLOW_LABEL = { IMPORT: 'Import', EXPORT: 'Export' } as const;
 
-/** The view a link asks for: a country's files or test files, the share links, or the recent files */
+/** Folders newest first (years, months), Import before Export, anything else by name */
+function folderOrder(a: string, b: string): number {
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) return Number(b) - Number(a);
+  const flows = ['IMPORT', 'EXPORT'];
+  if (flows.includes(a) && flows.includes(b)) return flows.indexOf(a) - flows.indexOf(b);
+  return a.localeCompare(b);
+}
+
+/** The view a link asks for: a country's files or test files, the merged files, the share links, or the recent files */
 const viewOf = (params: ViewParams) =>
-  params.view === 'shares' ? SHARES : params.test ? `${TEST}${params.test.toUpperCase()}` : (params.country?.toUpperCase() ?? RECENT);
+  params.view === 'shares' ? SHARES : params.view === 'merged' ? MERGED : params.test ? `${TEST}${params.test.toUpperCase()}` : (params.country?.toUpperCase() ?? RECENT);
 const hrefOf = (view: string) =>
-  view === RECENT ? '/files' : view === SHARES ? '/files?view=shares' : view.startsWith(TEST) ? `/files?test=${view.slice(TEST.length)}` : `/files?country=${view}`;
+  view === RECENT ? '/files' : view === SHARES ? '/files?view=shares' : view === MERGED ? '/files?view=merged' : view.startsWith(TEST) ? `/files?test=${view.slice(TEST.length)}` : `/files?country=${view}`;
 
 /** A month written in parts (_part1, _part2…): shown as one entry that opens to its parts */
 interface PartSet {
@@ -104,9 +115,10 @@ function StorageMeter({ used }: { used: number }) {
 }
 
 /**
- * Stored files: countries in a sidebar, a country's year as a board of months, recent files and
- * share links, search, and multi-select to download, share or delete. The view is kept in the
- * link without reloading the page.
+ * Stored files: countries in a sidebar, a country's folders as they are stored (year → month →
+ * import/export), merged files, recent files and share links, search, and multi-select of files
+ * and folders to download, share, merge or delete. The view is kept in the link without
+ * reloading the page.
  */
 export function FilesBrowser({
   files,
@@ -133,30 +145,33 @@ export function FilesBrowser({
 
   const [view, setViewState] = useState(() => viewOf(params));
   const [query, setQuery] = useState('');
-  const [year, setYear] = useState<string | null>(null);
+  // The open folder, below the view's root (e.g. ["2026", "09", "IMPORT"])
+  const [dir, setDir] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [toDelete, setToDelete] = useState<string[] | null>(null);
   const [toShare, setToShare] = useState<string[] | null>(null);
+  const [toMerge, setToMerge] = useState<ExportFile[] | null>(null);
   const [uploading, setUploading] = useState(false);
   // Split months opened to show their parts
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
 
-  // Countries with files, by name; each country's test files are a group of their own
+  // Countries with files, by name; each country's test files are a group of their own, and so are merged files
   const groups = useMemo(() => {
     const map = new Map<string, ExportFile[]>();
     for (const f of files) map.set(groupOf(f), [...(map.get(groupOf(f)) ?? []), f]);
     return [...map.entries()]
-      .map(([key, list]) => ({ key, code: list[0].countryCode ?? 'Other', test: list[0].test, files: list }))
+      .map(([key, list]) => ({ key, code: key === MERGED ? MERGED : (list[0].countryCode ?? 'Other'), test: list[0].test, files: list }))
       .sort((a, b) => countryName(a.code).localeCompare(countryName(b.code)));
   }, [files, countries]);
-  const realGroups = groups.filter((g) => !g.test);
+  const realGroups = groups.filter((g) => !g.test && g.key !== MERGED);
   const testGroups = groups.filter((g) => g.test);
+  const mergedGroup = groups.find((g) => g.key === MERGED);
 
   const setView = (next: string) => {
-    setYear(null);
+    setDir([]);
     setQuery('');
     setViewState(next);
     // Next keeps its router in step with history calls, without fetching the page again
@@ -206,13 +221,23 @@ export function FilesBrowser({
     { label: 'Delete file', icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete([f.relativePath]) },
   ];
 
-  /** "European Union · Aug 2026 · " in front of a file's facts, outside its country's view */
+  /** "European Union · Aug 2026 · Import · " in front of a file's facts, outside its country's view */
   const where = (f: ExportFile) =>
-    f.countryCode && (
+    f.origin === 'merged' ? (
       <>
-        <b>{countryName(f.countryCode)}</b> · {f.period ? fmtMonth(f.period) : 'Other'} · {f.test ? 'Test run · ' : ''}
+        <b>Merged</b> ·{' '}
       </>
+    ) : (
+      f.countryCode && (
+        <>
+          <b>{countryName(f.countryCode)}</b> · {f.period ? fmtMonth(f.period) : 'Other'} · {f.flow ? `${FLOW_LABEL[f.flow]} · ` : ''}
+          {f.test ? 'Test run · ' : ''}
+        </>
+      )
     );
+
+  /** Merge, in a menu, for files that include extracted ones */
+  const mergeItem = (list: ExportFile[]): MenuItem[] => (list.some((f) => f.origin === 'extracted') ? [{ label: 'Merge into one file', icon: <Icon.Merge size={15} />, onSelect: () => setToMerge(list) }] : []);
 
   /** One file: icon, name, facts, actions; in select mode the whole row toggles it. `of` is the parts it belongs to. */
   const fileRow = (f: ExportFile, showWhere = false, of?: PartSet) => {
@@ -302,51 +327,58 @@ export function FilesBrowser({
   /** Files as rows, a split month as one entry */
   const rows = (list: ExportFile[], showWhere = false) => bundle(list).flatMap((item) => ('files' in item ? partsRow(item, showWhere) : [fileRow(item, showWhere)]));
 
-  /** A year's files as one list, grouped under each month that has files (newest first) */
-  function monthList(year: number, yearFiles: ExportFile[], country?: Country) {
-    // Up to the latest month the source should have out, so unpublished months don't show as missing
-    const current = (country && latestPublished(country)) || nowPeriod();
-    const periods = yearPeriods(year).filter((p) => p <= current || yearFiles.some((f) => f.period === p));
-    const withFiles = [...periods].reverse().filter((p) => yearFiles.some((f) => f.period === p));
-    const without = periods.filter((p) => !yearFiles.some((f) => f.period === p));
-
+  /**
+   * One folder: opens it, or in select mode selects every file in it at any depth. Downloads,
+   * shares, saves, merges or deletes them together.
+   */
+  const folderRow = (name: string, inside: ExportFile[], at: string[]) => {
+    const paths = pathsOf(inside);
+    const isSelected = paths.every((p) => selected.has(p));
+    const key = `folder|${[...at, name].join('/')}`;
+    const label = FLOW_LABEL[name as keyof typeof FLOW_LABEL] ?? name;
     return (
-      <div className="month-list">
-        {withFiles.map((p) => {
-          const inMonth = yearFiles.filter((f) => f.period === p).sort((a, b) => (a.part ?? 0) - (b.part ?? 0) || a.fileName.localeCompare(b.fileName));
-          const state = country ? monthState(country, p) : 'none';
-          return (
-            <section key={p} className="month-group">
-              <header className="month-group-head">
-                {selecting && <Check {...checkFor(pathsOf(inMonth), `Select ${fmtMonth(p)} files`)} />}
-                <span className="month-group-name">{fmtMonth(p)}</span>
-                {state === 'completed' && (
-                  <Badge tone="green" dot>
-                    Completed
-                  </Badge>
-                )}
-                {state === 'extracting' && (
-                  <Badge tone="amber" dot>
-                    Not checked yet
-                  </Badge>
-                )}
-                <span className="month-group-meta">
-                  {inMonth.length > 1 ? `${plural(inMonth.length, 'file')} · ` : ''}
-                  {fmtSize(sizeOf(inMonth))}
-                </span>
-                {country && state === 'extracting' && !selecting && (
-                  <span className="month-group-actions">
-                    <RemoveMonthsButton country={country} periods={[p]} />
-                    <MarkCompletedButton country={country} periods={[p]} label="Mark completed" variant="secondary" />
-                  </span>
-                )}
-              </header>
-              <ul className="file-list">{rows(inMonth)}</ul>
-            </section>
-          );
-        })}
-        {without.length > 0 && <p className="month-list-missing">No files for {without.map((p) => MONTH_LABELS[Number(p.slice(5, 7)) - 1]).join(', ')}</p>}
-      </div>
+      <li key={key} className={`file-row file-parts selectable ${isSelected && selecting ? 'selected' : ''}`} onClick={selecting ? () => toggle(paths, !isSelected) : () => setDir([...at, name])}>
+        {selecting && <Check {...checkFor(paths, `Select everything in ${label}`)} />}
+        <Icon.Folder size={20} />
+        <span className="file-row-text" title={[rootOf(group!.key), ...at, name].join('/')}>
+          <span className="file-row-name">{label}</span>
+          <span className="file-row-meta">
+            {plural(inside.length, 'file')} · {fmtSize(sizeOf(inside))} · <When value={inside.reduce((a, b) => (b.modifiedAt > a.modifiedAt ? b : a)).modifiedAt} as="relative" title />
+          </span>
+        </span>
+        {!selecting && (
+          <span className="file-row-actions" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" variant="ghost" iconOnly aria-label={`Download ${label} as a zip`} title="Download (zip)" loading={busy === key} icon={<Icon.Download size={16} />} onClick={() => download(paths, key)} />
+            <Menu
+              label="Folder options"
+              items={[
+                ...mergeItem(inside),
+                { label: 'Share link', icon: <Icon.Link size={15} />, onSelect: () => setToShare(paths) },
+                ...saveItem(paths, key),
+                { label: `Delete ${plural(inside.length, 'file')}`, icon: <Icon.Trash size={15} />, separator: true, danger: true, onSelect: () => setToDelete(paths) },
+              ]}
+            />
+          </span>
+        )}
+      </li>
+    );
+  };
+
+  /** The open folder's subfolders (newest first), then its own files */
+  function folderList(here: string, inside: ExportFile[], at: string[]) {
+    const subfolders = new Map<string, ExportFile[]>();
+    const direct: ExportFile[] = [];
+    for (const f of inside) {
+      const rest = f.relativePath.slice(here.length + 1).split('/');
+      if (rest.length > 1) subfolders.set(rest[0], [...(subfolders.get(rest[0]) ?? []), f]);
+      else direct.push(f);
+    }
+    direct.sort((a, b) => (a.part ?? 0) - (b.part ?? 0) || a.fileName.localeCompare(b.fileName));
+    return (
+      <ul className="file-list">
+        {[...subfolders.keys()].sort(folderOrder).map((name) => folderRow(name, subfolders.get(name)!, at))}
+        {rows(direct)}
+      </ul>
     );
   }
 
@@ -368,42 +400,47 @@ export function FilesBrowser({
     head = { title: 'Recent files', desc: `The latest ${recent.length} added or replaced, across every country`, visible: recent };
     body = recent.length ? <ul className="file-list">{rows(recent, true)}</ul> : <Empty>No files yet. They appear here once an extraction saves them.</Empty>;
   } else {
-    const years = [...new Set(group.files.map(yearOf))].sort().reverse();
-    const shownYear = year && years.includes(year) ? year : years[0];
-    const yearFiles = group.files.filter((f) => yearOf(f) === shownYear);
-    const monthsWithFiles = new Set(group.files.map((f) => f.period).filter(Boolean)).size;
+    const root = rootOf(group.key);
+    // A folder emptied since (e.g. its files deleted) falls back to the nearest one still there
+    let depth = dir.length;
+    while (depth > 0 && !group.files.some((f) => f.relativePath.startsWith(`${[root, ...dir.slice(0, depth)].join('/')}/`))) depth--;
+    const open = dir.slice(0, depth);
+    const here = [root, ...open].join('/');
+    const inside = group.files.filter((f) => f.relativePath.startsWith(`${here}/`));
+    const merged = group.key === MERGED;
 
     head = {
       title: (
         <span className="title-with-code">
-          {countryName(group.code)} {group.code !== 'Other' && <CodeTag code={group.code} />}
+          {merged ? 'Merged files' : countryName(group.code)} {!merged && group.code !== 'Other' && <CodeTag code={group.code} />}
           {group.test && <Badge tone="amber">Test files</Badge>}
         </span>
       ),
-      desc: `${group.test ? 'From runs on the test HS codes, kept apart from the real data · ' : ''}${plural(group.files.length, 'file')} · ${fmtSize(sizeOf(group.files))} · ${plural(monthsWithFiles, 'month')}`,
-      visible: yearFiles,
-      filter: (
-        <Menu
-          label="Filter by year"
-          width={180}
-          trigger={{
-            className: 'btn btn-secondary btn-md filter-btn',
-            content: (
-              <>
-                <Icon.Filter size={15} /> {shownYear}
-              </>
-            ),
-          }}
-          items={years.map((y) => ({
-            label: `${y} · ${plural(group.files.filter((f) => yearOf(f) === y).length, 'file')}`,
-            active: y === shownYear,
-            icon: y === shownYear ? <Icon.Check size={14} /> : undefined,
-            onSelect: () => setYear(y),
-          }))}
-        />
+      desc: (
+        <>
+          {group.test ? 'From runs on the test HS codes, kept apart from the real data · ' : merged ? 'Made with Merge from extracted files · ' : ''}
+          {plural(inside.length, 'file')} · {fmtSize(sizeOf(inside))}
+          {open.length > 0 && (
+            <span className="crumbs" role="navigation" aria-label="Folder">
+              {[merged ? 'Merged' : countryName(group.code), ...open.map((s) => FLOW_LABEL[s as keyof typeof FLOW_LABEL] ?? s)].map((label, i) => (
+                <span key={i}>
+                  {i > 0 && <Icon.ChevronRight size={12} />}
+                  {i < open.length ? (
+                    <button type="button" className="crumb" onClick={() => setDir(open.slice(0, i))}>
+                      {label}
+                    </button>
+                  ) : (
+                    <b>{label}</b>
+                  )}
+                </span>
+              ))}
+            </span>
+          )}
+        </>
       ),
+      visible: inside,
     };
-    body = shownYear === 'Other' ? <ul className="file-list">{rows(yearFiles)}</ul> : monthList(Number(shownYear), yearFiles, group.test ? undefined : countries.find((c) => c.code === group.code));
+    body = inside.length ? folderList(here, inside, open) : <Empty>This folder is empty.</Empty>;
   }
 
   const sideItem = (g: (typeof groups)[number]) => (
@@ -444,6 +481,13 @@ export function FilesBrowser({
               <Icon.Link size={15} />
               <span className="side-name">Shared links</span>
             </button>
+            {mergedGroup && (
+              <button type="button" className={`side-item ${view === MERGED && !q ? 'active' : ''}`} onClick={() => setView(MERGED)} title={`${plural(mergedGroup.files.length, 'file')} · ${fmtSize(sizeOf(mergedGroup.files))}`}>
+                <Icon.Merge size={15} />
+                <span className="side-name">Merged</span>
+                <span className="side-meta">{fmtSize(sizeOf(mergedGroup.files))}</span>
+              </button>
+            )}
             <span className="side-label">Countries</span>
             {realGroups.map(sideItem)}
             {realGroups.length === 0 && <span className="side-meta padded-side">No files yet</span>}
@@ -502,11 +546,16 @@ export function FilesBrowser({
         <Button variant="primary" size="sm" icon={<Icon.Download size={14} />} loading={busy === 'selection'} onClick={() => download([...selected], 'selection')}>
           {selected.size === 1 ? 'Download' : 'Download zip'}
         </Button>
+        {selectedFiles.some((f) => f.origin === 'extracted') && (
+          <Button variant="secondary" size="sm" icon={<Icon.Merge size={14} />} onClick={() => setToMerge(selectedFiles)} title="Merge the selected extracted files into one dataset">
+            Merge
+          </Button>
+        )}
         <Button variant="secondary" size="sm" icon={<Icon.Link size={14} />} onClick={() => setToShare([...selected])}>
           Share link
         </Button>
         {folder.supported && (
-          <Button variant="secondary" size="sm" icon={<Icon.Folder size={14} />} loading={folder.busy === 'selection'} onClick={() => folder.save([...selected], 'selection')} title="Save into your data folder, in country and year folders, with zips unpacked">
+          <Button variant="secondary" size="sm" icon={<Icon.Folder size={14} />} loading={folder.busy === 'selection'} onClick={() => folder.save([...selected], 'selection')} title="Save into your data folder, in the same folders as in storage, with zips unpacked">
             {folder.busy === 'selection' ? `Saving ${folder.progress.done} of ${folder.progress.total}` : 'Save to folder'}
           </Button>
         )}
@@ -516,9 +565,10 @@ export function FilesBrowser({
         <Button variant="ghost" size="sm" iconOnly aria-label="Clear selection" icon={<Icon.X size={14} />} onClick={() => setSelected(new Set())} />
       </Dock>
 
-      <UploadModal open={uploading} onClose={() => setUploading(false)} countries={countries} initialCode={group && !group.test && group.code !== 'Other' ? group.code : undefined} />
+      <UploadModal open={uploading} onClose={() => setUploading(false)} countries={countries} initialCode={group && !group.test && group.key !== MERGED && group.code !== 'Other' ? group.code : undefined} />
       {/* Once the link is made the selection has done its job; closing without one keeps it */}
       <ShareModal paths={toShare} onClose={() => setToShare(null)} onCreated={stopSelecting} />
+      <MergeModal files={toMerge} onClose={() => setToMerge(null)} onDone={stopSelecting} />
       <ConfirmModal
         open={Boolean(toDelete)}
         onClose={() => setToDelete(null)}

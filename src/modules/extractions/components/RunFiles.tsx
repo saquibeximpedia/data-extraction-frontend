@@ -6,11 +6,12 @@ import { useDownload } from '@/lib/download';
 import { fmtMonth, fmtSize, plural } from '@/lib/format';
 import type { Country, ExportFile } from '@/lib/types';
 
-// {CC}_{YYYY-MM}.csv or {CC}_{YYYY-MM}_part{N}.csv
-const RUN_FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_part(\d+))?\./i;
+// {CC}_{YYYY-MM}_{FLOW}.zip or {CC}_{YYYY-MM}_{FLOW}_part{N}.zip; runs from before files were kept per flow: {CC}_{YYYY-MM}[_part{N}].csv
+const RUN_FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_(IMPORT|EXPORT))?(?:_part(\d+))?\./i;
+const FLOW_LABEL: Record<string, string> = { IMPORT: 'Import', EXPORT: 'Export' };
 
 /**
- * The files a run saved, grouped by country and month (a big month comes in parts): each file
+ * The files a run saved, grouped by country, month and flow (a big month comes in parts): each file
  * with its size from storage and a download, each month and the whole run as one zip. Files
  * deleted since are marked Deleted; each country links to all of its files. `stored` is null
  * when storage couldn't be listed (every file is then offered).
@@ -29,7 +30,8 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
       code,
       country: code ? (countries.find((c) => c.code === code)?.name ?? code) : '',
       period: m?.[2] ?? null,
-      part: m?.[3] ? Number(m[3]) : null,
+      flow: m?.[3] ? FLOW_LABEL[m[3].toUpperCase()] : null,
+      part: m?.[4] ? Number(m[4]) : null,
       stored: stored?.find((f) => f.relativePath === path),
     };
   });
@@ -40,8 +42,9 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
   const total = sizeOf(rows);
   const deleted = rows.length - available.length;
   const codes = [...new Map(rows.filter((r) => r.code).map((r) => [r.code!, r.country])).entries()];
-  // One group per country and month, in the order the files sort
-  const groups = [...new Map(rows.map((r) => [`${r.country}|${r.period}`, rows.filter((x) => x.country === r.country && x.period === r.period)])).values()];
+  // One group per country, month and flow, in the order the files sort
+  const groupKey = (r: Row) => `${r.country}|${r.period}|${r.flow}`;
+  const groups = [...new Map(rows.map((r) => [groupKey(r), rows.filter((x) => groupKey(x) === groupKey(r))])).values()];
 
   return (
     <section className="run-files" aria-label="Files saved">
@@ -77,13 +80,13 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
       <div className="month-list">
         {groups.map((group) => {
           const first = group[0];
-          const key = `${first.country}|${first.period}`;
+          const key = groupKey(first);
           const ready = group.filter(isAvailable);
           const parts = group.filter((r) => r.part).length;
           return (
             <section key={key} className="month-group">
               <header className="month-group-head">
-                <span className="month-group-name">{[first.country, first.period && fmtMonth(first.period)].filter(Boolean).join(' · ') || 'Other files'}</span>
+                <span className="month-group-name">{[first.country, first.period && fmtMonth(first.period), first.flow].filter(Boolean).join(' · ') || 'Other files'}</span>
                 <span className="month-group-meta">
                   {parts ? `${plural(parts, 'part')} · ` : ''}
                   {sizeOf(group) ? fmtSize(sizeOf(group)) : ''}
@@ -91,7 +94,7 @@ export function RunFiles({ files, stored, countries }: { files: string[]; stored
                 {ready.length > 1 && (
                   <span className="month-group-actions">
                     <Button size="sm" variant="ghost" icon={<Icon.Download size={14} />} loading={busy === key} onClick={() => download(ready.map((r) => r.path), key)}>
-                      Month (zip)
+                      All parts (zip)
                     </Button>
                   </span>
                 )}

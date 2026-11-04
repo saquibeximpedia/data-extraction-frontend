@@ -22,8 +22,15 @@ function fail(action: string, error: { message: string }): never {
   throw new HttpError(502, `${action}: ${error.message}`);
 }
 
-// {CC}_{YYYY-MM}.csv or {CC}_{YYYY-MM}_part{N}.csv (extracted), or {CC}_{YYYY-MM}__{original name} (uploaded)
-const FILE_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})(?:_part(\d+))?(__.+)?\.[a-z0-9]+$/i;
+// {CC}_{YYYY-MM}_{FLOW}.zip or {CC}_{YYYY-MM}_{FLOW}_part{N}.zip (extracted)
+const EXTRACTED_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})_(IMPORT|EXPORT)(?:_part(\d+))?\.(csv|zip)$/i;
+// {CC}_{YYYY-MM}__{original name} (uploaded)
+const UPLOADED_RE = /^([A-Z]{2,3})_(\d{4}-\d{2})__.+$/i;
+// merged/{name}/{name}.zip or {name}_part{N}.zip
+const MERGED_FOLDER = 'merged';
+const PART_RE = /_part(\d+)\.[a-z0-9]+$/i;
+/** Folders below the bucket: _test/{CC}/{YYYY}/{MM}/{FLOW} is the deepest */
+const MAX_DEPTH = 6;
 
 const metaTable = () => admin().from('file_meta');
 
@@ -49,7 +56,7 @@ function uploadPath(countryCode: string, period: string, originalName: string): 
   const ext = originalName.split('.').pop()?.toLowerCase() ?? '';
   if (!UPLOAD_TYPES[ext]) throw badRequest(`Upload .xlsx, .xls, .csv or .zip files (got .${ext || '?'})`);
   const clean = originalName.replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_').slice(-120) || 'file';
-  return `${countryCode}/${period.slice(0, 4)}/${countryCode}_${period}__${clean}`;
+  return `${countryCode}/${period.slice(0, 4)}/${period.slice(5, 7)}/${countryCode}_${period}__${clean}`;
 }
 
 /** Largest file fetched from a source link (Supabase's free plan rejects uploads over 50 MB) */
@@ -78,11 +85,19 @@ function extensionOf(name: string, contentType: string): string | null {
 /** Files of runs on the test HS codes sit under this top folder, apart from the real data */
 const TEST_FOLDER = '_test';
 
-function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'origin' | 'part' | 'test'> {
+function describe(relativePath: string): Pick<ExportFile, 'countryCode' | 'period' | 'flow' | 'origin' | 'part' | 'test'> {
   const test = relativePath.startsWith(`${TEST_FOLDER}/`);
-  const m = (relativePath.split('/').pop() ?? '').match(FILE_RE);
-  if (!m) return { countryCode: null, period: null, origin: 'uploaded', part: null, test };
-  return { countryCode: m[1].toUpperCase(), period: m[2], origin: m[4] ? 'uploaded' : 'extracted', part: m[3] ? Number(m[3]) : null, test };
+  const name = relativePath.split('/').pop() ?? '';
+  const none = { countryCode: null, period: null, flow: null, part: null, test };
+  if (relativePath.startsWith(`${MERGED_FOLDER}/`)) {
+    const part = name.match(PART_RE)?.[1];
+    return { ...none, origin: 'merged', part: part ? Number(part) : null };
+  }
+  const e = name.match(EXTRACTED_RE);
+  if (e) return { countryCode: e[1].toUpperCase(), period: e[2], flow: e[3].toUpperCase() as 'IMPORT' | 'EXPORT', origin: 'extracted', part: e[4] ? Number(e[4]) : null, test };
+  const u = name.match(UPLOADED_RE);
+  if (u) return { ...none, countryCode: u[1].toUpperCase(), period: u[2], origin: 'uploaded' };
+  return { ...none, origin: 'uploaded' };
 }
 
 /** Fails with a clear message when SUPABASE_BUCKET is not a bucket of this project */
@@ -92,10 +107,11 @@ async function assertBucket(): Promise<void> {
 }
 
 /**
- * Files in the private bucket, one folder per country and year:
- *   {CC}/{YYYY}/{CC}_{YYYY-MM}.csv            written by the extraction service
- *   {CC}/{YYYY}/{CC}_{YYYY-MM}__{name}.xlsx   uploaded by users
- *   _test/{CC}/{YYYY}/{CC}_{YYYY-MM}.csv      written by runs on the test HS codes
+ * Files in the private bucket, one folder per country, year and month:
+ *   {CC}/{YYYY}/{MM}/{FLOW}/{CC}_{YYYY-MM}_{FLOW}.zip   written by the extraction service (or _part1.zip, _part2.zip…)
+ *   {CC}/{YYYY}/{MM}/{CC}_{YYYY-MM}__{name}.xlsx        uploaded by users (older uploads sit in {CC}/{YYYY}/)
+ *   _test/{CC}/…                                        written by runs on the test HS codes
+ *   merged/{name}/{name}.zip                            written by merges (or _part1.zip…)
  * The browser never gets bucket access: it downloads through short-lived signed links and
  * uploads through one-time signed upload links handed out here.
  */
@@ -116,7 +132,7 @@ export const files = {
         for (const entry of data) {
           const path = prefix ? `${prefix}/${entry.name}` : entry.name;
           if (entry.id === null) {
-            if (depth < 3) await walk(path, depth + 1);
+            if (depth < MAX_DEPTH) await walk(path, depth + 1);
           } else if (!entry.name.startsWith('.')) {
             out.push({
               fileName: entry.name,

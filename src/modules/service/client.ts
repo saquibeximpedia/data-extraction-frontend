@@ -1,6 +1,6 @@
 import { AppError } from '@/lib/result';
 import { supabase } from '@/lib/supabase/browser';
-import type { AppSettings, ExtractorInfo, Run, RunLog, RunOptions, RunResponse, ServiceHealth } from '@/lib/types';
+import type { AppSettings, ExtractorInfo, MergeJob, Run, RunLog, RunOptions, RunResponse, ServiceHealth } from '@/lib/types';
 
 // The extraction service (the Node backend) only extracts. The browser calls it directly, so a
 // service on this machine (localhost) works, and the service sees each browser's real IP for ALLOWED_IPS.
@@ -68,7 +68,7 @@ export interface SettingsResponse {
 }
 
 export interface HeldFile {
-  /** {CC}/{YYYY}/{file}, as it goes into the folder */
+  /** {CC}/{YYYY}/{MM}/{FLOW}/{file}, as it goes into the folder */
   path: string;
   size: number;
 }
@@ -100,6 +100,10 @@ export const extractor = {
   heldFile: (id: string, path: string, signal?: AbortSignal) => serviceRaw(`/api/runs/${id}/held/file?path=${encodeURIComponent(path)}`, { signal }),
   /** Drops held files once they are in the folder */
   clearHeld: (id: string, paths: string[]) => service<{ success: boolean }>(`/api/runs/${id}/held`, json('DELETE', { paths })),
+  /** Merges stored folders and files into merged/{name}/, in the background */
+  merge: (paths: string[], name?: string) => service<MergeJob>('/api/merges', json('POST', { paths, name: name || undefined })),
+  /** A merge's progress */
+  mergeStatus: (id: string) => service<MergeJob>(`/api/merges/${id}`),
   /** The extraction settings in force, and their .env defaults */
   settings: () => service<SettingsResponse>('/api/settings'),
   /** Admins only; applies from the next request on */

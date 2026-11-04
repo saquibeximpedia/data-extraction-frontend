@@ -25,7 +25,7 @@ interface Progress {
 
 /**
  * This browser's data folder: where its new extractions save (the database, or the folder), and a
- * copy of every stored file into the folder. Copies every stored file into a folder on this device, laid out like storage ({CC}/{YYYY}/{file}).
+ * copy of every stored file into the folder. Copies every stored file into a folder on this device, laid out like storage ({CC}/{YYYY}/{MM}/{FLOW}/{file}).
  * Files already there with the same size are left alone, so files from earlier copies (or put there
  * by hand under the same names) aren't downloaded again. Needs Chrome or Edge (folder access).
  */
@@ -127,7 +127,7 @@ export function LocalCopy() {
     }
   }
 
-  const desc = 'Where extractions started in this browser save their files, and a copy of every stored file into a folder here, in country and year folders.';
+  const desc = 'Where extractions started in this browser save their files, and a copy of every stored file into a folder here, in the same folders as in storage.';
   if (!supported) {
     return (
       <Panel i={3} title="Files on this device" desc={desc}>

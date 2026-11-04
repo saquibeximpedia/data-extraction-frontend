@@ -1,7 +1,7 @@
 'use client';
 
 // The data folder on this device (Chrome/Edge folder access), shared by the copy on Settings and
-// runs saved to the device. Files are laid out as in storage: {CC}/{YYYY}/{file}.
+// runs saved to the device. Files are laid out as in storage: {CC}/{YYYY}/{MM}/{FLOW}/{file}.
 
 export type Dir = FileSystemDirectoryHandle;
 type Permission = { queryPermission(o: { mode: 'readwrite' }): Promise<PermissionState>; requestPermission(o: { mode: 'readwrite' }): Promise<PermissionState> };

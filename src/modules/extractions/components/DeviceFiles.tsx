@@ -21,7 +21,7 @@ interface Saving {
 
 /**
  * Files of a run saved to the device. The service holds each finished month until this page
- * downloads it into the chosen folder ({CC}/{YYYY}/{file}) and then drops it. With folder access
+ * downloads it into the chosen folder ({CC}/{YYYY}/{MM}/{FLOW}/{file}) and then drops it. With folder access
  * already granted that happens by itself when the page opens; otherwise one click allows it.
  */
 export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {

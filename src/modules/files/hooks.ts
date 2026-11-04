@@ -12,7 +12,7 @@ const PARALLEL = 3;
 
 /**
  * Saves stored files into this browser's data folder (the one on Settings, asked for when none is
- * chosen), laid out as in storage: {CC}/{YYYY}/{file}, with zips unpacked there. A file already
+ * chosen), laid out as in storage: {CC}/{YYYY}/{MM}/{FLOW}/{file}, with zips unpacked there. A file already
  * there is replaced. `busy` is the key being saved; `progress` counts the stored files done.
  * Needs Chrome or Edge.
  */
@@ -51,7 +51,7 @@ export function useSaveToFolder() {
         setProgress((p) => ({ ...p, done: p.done + 1 }));
       });
       if (failed.length) toast('err', `${plural(failed.length, 'file')} could not be saved to ${root.name}`, failed.slice(0, 3).join('\n'));
-      else toast('ok', `Saved ${plural(written, 'file')} to ${root.name}`, 'In country and year folders, as in storage, with zips unpacked.');
+      else toast('ok', `Saved ${plural(written, 'file')} to ${root.name}`, 'In the same folders as in storage (country, year, month, import/export), with zips unpacked.');
     } catch (err) {
       toast('err', 'Could not save to the folder', errorText(err));
     } finally {

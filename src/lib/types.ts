@@ -221,9 +221,11 @@ export interface ExportFile {
   modifiedAt: string;
   countryCode: string | null;
   period: string | null;
-  /** 'extracted' files are written by runs; 'uploaded' ones were added by users */
-  origin: 'extracted' | 'uploaded';
-  /** A month too big for one upload is stored in parts (_part1, _part2…); null for a whole month */
+  /** An extracted file's flow (its folder); null for uploaded and merged files */
+  flow: 'IMPORT' | 'EXPORT' | null;
+  /** 'extracted' files are written by runs, 'merged' ones by merges (under merged/); 'uploaded' ones were added by users */
+  origin: 'extracted' | 'uploaded' | 'merged';
+  /** A file too big for one (over 9 lakh rows or one upload) is stored in parts (_part1, _part2…); null when whole */
   part: number | null;
   /** Who uploaded it (null for extracted files) */
   uploadedBy: string | null;
@@ -261,6 +263,28 @@ export interface PublicShare {
   hasPassword: boolean;
   locked: boolean;
   files: SharedFile[];
+}
+
+/** A merge on the service (POST / GET {service}/api/merges): selected files merged into merged/{name}/ */
+export interface MergeJob {
+  id: string;
+  name: string;
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+  startedBy: string;
+  startedAt: string;
+  finishedAt?: string;
+  /** The extracted files merged */
+  sources: string[];
+  /** Selected files left out: uploaded and merged files */
+  skipped: string[];
+  /** What it is doing now, e.g. "Downloading 3 of 24" */
+  step: string;
+  filesDone: number;
+  rowsTotal: number;
+  rowsWritten: number;
+  /** The merged file, or its parts */
+  outputs: string[];
+  error?: string;
 }
 
 /** Response of POST {service}/api/extractions: runs start in the background */
