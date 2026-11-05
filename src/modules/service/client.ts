@@ -1,6 +1,6 @@
 import { AppError } from '@/lib/result';
 import { supabase } from '@/lib/supabase/browser';
-import type { AppSettings, ExtractorInfo, MergeJob, Run, RunLog, RunOptions, RunResponse, ServiceHealth } from '@/lib/types';
+import type { AppSettings, ExtractorInfo, MergeJob, Run, RunLog, RunOptions, RunResponse, ServiceHealth, SourceMonth } from '@/lib/types';
 
 // The extraction service (the Node backend) only extracts. The browser calls it directly, so a
 // service on this machine (localhost) works, and the service sees each browser's real IP for ALLOWED_IPS.
@@ -94,6 +94,9 @@ export interface ExtractBody {
 
 export const extractor = {
   countries: () => service<{ countries: ExtractorInfo[] }>('/api/countries').then((r) => r.countries),
+  /** Source-files countries: each month and flow's file links at the source, for this browser to download (nothing runs or is stored) */
+  sourceFiles: (code: string, start: string, end: string, tradeType: string) =>
+    service<{ months: SourceMonth[] }>(`/api/countries/${code}/source-files?${new URLSearchParams({ start, end, tradeType })}`).then((r) => r.months),
   /** Runs in the background (its months are marked extracting) */
   extract: (body: ExtractBody) => service<RunResponse>('/api/extractions', json('POST', body)),
   /** Extractions running right now */

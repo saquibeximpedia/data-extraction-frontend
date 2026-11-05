@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { MonthLegend, STATE_LABEL } from '@/components/months';
 import { RecheckButton, SetupNeeded, useSetupProblem } from '@/components/service-notice';
 import { ExtractSkeleton } from '@/components/skeletons';
+import { accessLabel } from '@/components/access-badges';
 import { SourceInfo } from '@/components/source-info';
 import { Empty, Icon, Panel, Select } from '@/components/ui';
 import { fmtMonth, fmtRange } from '@/lib/format';
@@ -112,6 +113,8 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
   const countrySelect = (
     <Select
       id="country"
+      searchable
+      searchPlaceholder="Search countries"
       value={country.code}
       onChange={(next) => router.replace(`/extract?country=${next}`)}
       options={extractable.map((c) => {
@@ -121,6 +124,8 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
           value: c.code,
           label: c.name,
           meta: c.code,
+          tag: accessLabel(c.access).text,
+          tagTitle: accessLabel(c.access).title,
           disabled: !status.ok,
           hint: status.ok ? (due.length ? `${fmtRange(due)} due` : c.latestCompleted ? `Up to date (${fmtMonth(c.latestCompleted)})` : 'Nothing done yet') : status.reason,
         };

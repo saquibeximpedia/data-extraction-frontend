@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { AccessBadges } from '@/components/access-badges';
 import { Badge, CodeTag, Empty, FilterTabs, Icon, Panel, SearchInput, When } from '@/components/ui';
 import { fmtMonth, plural } from '@/lib/format';
 import { useRowLink } from '@/lib/hooks';
@@ -142,7 +143,7 @@ export function CountryTable({
                         {c.name}
                       </Link>
                       <CodeTag code={c.code} />
-                      {c.kind === 'manual' && <Badge>Download-only</Badge>}
+                      <AccessBadges access={c.access} />
                     </span>
                   </td>
                   <td>

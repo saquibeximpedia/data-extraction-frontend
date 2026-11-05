@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CountryUpload } from '@/components/country-upload';
+import { AccessBadges } from '@/components/access-badges';
 import { PageHead } from '@/components/page-head';
 import { SourceInfo } from '@/components/source-info';
-import { Badge, CodeTag, Icon, Panel, When } from '@/components/ui';
+import { CodeTag, Icon, Panel, When } from '@/components/ui';
 import { requireUser } from '@/modules/auth/session';
 import { CountryMonths } from '@/modules/countries/components/CountryMonths';
 import { CountryOverview, ExtractLink } from '@/modules/countries/components/CountryOverview';
@@ -28,7 +29,7 @@ export default async function CountryPage({ params }: { params: Promise<{ code: 
         }
         sub={
           <>
-            {country.kind === 'manual' && <Badge>Download-only</Badge>}{' '}
+            <AccessBadges access={country.access} />{' '}
             {country.lastUpdatedAt ? (
               <>
                 Updated <When value={country.lastUpdatedAt} as="relative" />

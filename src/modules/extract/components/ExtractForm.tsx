@@ -11,6 +11,7 @@ import { AppError, errorText } from '@/lib/result';
 import type { AppSettings, Country, DatasetRef, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { BulkLinksModal, isDownloadOnly } from './BulkLinksModal';
+import { SourceFilesModal } from './SourceFilesModal';
 import { useApp } from '@/modules/service/store';
 
 type Flow = 'ALL' | TradeFlow;
@@ -95,13 +96,17 @@ function yearsFor(country: Country): string[] {
 }
 
 /** The form's title, with the country picker beside it */
-export function FormHead({ countrySelect, downloadOnly }: { countrySelect: React.ReactNode; downloadOnly?: boolean }) {
+export function FormHead({ countrySelect, downloadOnly, sourceFiles }: { countrySelect: React.ReactNode; downloadOnly?: boolean; sourceFiles?: boolean }) {
   return (
     <div className="extract-head">
       <div>
-        <h2 className="panel-title">{downloadOnly ? 'Download files' : 'New extraction'}</h2>
+        <h2 className="panel-title">{downloadOnly ? 'Download files' : sourceFiles ? 'Download source files' : 'New extraction'}</h2>
         <p className="panel-desc">
-          {downloadOnly ? 'Links to the source’s own files, opened in your browser; nothing is extracted.' : 'Runs on the extraction service; follow it live under Extractions.'}
+          {downloadOnly
+            ? 'Links to the source’s own files, opened in your browser; nothing is extracted.'
+            : sourceFiles
+              ? 'The source’s own files for each month, downloaded straight to this device as published. Nothing is saved on the server or in the database.'
+              : 'Runs on the extraction service; follow it live under Extractions.'}
         </p>
       </div>
       <div className="extract-country">
@@ -169,6 +174,7 @@ export function ExtractForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [showLinks, setShowLinks] = useState(false);
+  const [showSourceFiles, setShowSourceFiles] = useState(false);
   // Set on Settings for this browser; read after loading so the page hydrates the same
   const [saveTo, setSaveTo] = useState<Destination>('storage');
   const [folder, setFolder] = useState<Dir | null>(null);
@@ -183,9 +189,12 @@ export function ExtractForm({
     if (value === 'month') setMonths([start, start]);
   };
 
+  // Source-files countries: each month's files download straight from the source to this device,
+  // so there are no codes, data set or run options, and nothing is stored
+  const sourceFiles = info.sourceFiles ?? null;
   const codes = splitCodes(hsText);
-  const useCodes = hsOpen && codes.length > 0;
-  const effectiveMode: Mode = isProd ? 'complete' : mode;
+  const useCodes = !sourceFiles && hsOpen && codes.length > 0;
+  const effectiveMode: Mode = isProd || sourceFiles ? 'complete' : mode;
   const months = start && end ? periodRange(start, end) : [];
   const completed = months.filter((p) => country.completedMonths.includes(p));
   const extracting = months.filter((p) => country.extractingMonths.includes(p));
@@ -270,7 +279,7 @@ export function ExtractForm({
   return (
     <Panel i={1} className="extract-card">
       <div className="extract-form">
-        <FormHead countrySelect={countrySelect} downloadOnly={downloadOnly} />
+        <FormHead countrySelect={countrySelect} downloadOnly={downloadOnly} sourceFiles={Boolean(sourceFiles)} />
 
         {yearly && info.bulkDownload && (
           <Field label="Year" htmlFor="year">
@@ -363,6 +372,11 @@ export function ExtractForm({
                 />
               </Field>
 
+              {sourceFiles ? (
+                <Field label="Files">
+                  <p className="field-help">{sourceFiles.description}</p>
+                </Field>
+              ) : (
               <Field label="Data set">
                 <Segmented<Mode>
                   label="Data set"
@@ -374,6 +388,7 @@ export function ExtractForm({
                   ]}
                 />
               </Field>
+              )}
             </div>
 
             {datasets.length > 0 && (
@@ -418,17 +433,21 @@ export function ExtractForm({
 
             {/* Rarely changed, so two small toggles; their fields open below */}
             <div className="more-options">
-              <button type="button" className={`more-toggle ${hsOpen ? 'open' : ''}`} aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
-                Specific HS codes{useCodes ? ` · ${codes.length}` : ''}
-                <Icon.ChevronDown size={13} />
-              </button>
-              <button type="button" className={`more-toggle ${tuneOpen ? 'open' : ''}`} aria-expanded={tuneOpen} onClick={() => setTuneOpen((o) => !o)}>
-                Advanced options{tuned ? ` · ${tuned} changed` : ''}
-                <Icon.ChevronDown size={13} />
-              </button>
+              {!sourceFiles && (
+                <button type="button" className={`more-toggle ${hsOpen ? 'open' : ''}`} aria-expanded={hsOpen} onClick={() => setHsOpen((o) => !o)}>
+                  Specific HS codes{useCodes ? ` · ${codes.length}` : ''}
+                  <Icon.ChevronDown size={13} />
+                </button>
+              )}
+              {!sourceFiles && (
+                <button type="button" className={`more-toggle ${tuneOpen ? 'open' : ''}`} aria-expanded={tuneOpen} onClick={() => setTuneOpen((o) => !o)}>
+                  Advanced options{tuned ? ` · ${tuned} changed` : ''}
+                  <Icon.ChevronDown size={13} />
+                </button>
+              )}
             </div>
 
-            {hsOpen && (
+            {hsOpen && !sourceFiles && (
               <div className="more-body">
                 <textarea
                   rows={3}
@@ -443,7 +462,7 @@ export function ExtractForm({
               </div>
             )}
 
-            {tuneOpen && (
+            {tuneOpen && !sourceFiles && (
               <div className="more-body">
                 <div className="tuning-grid">
                   {tuningField('concurrency', 'Parallel requests', 'at once', 1, 20)}
@@ -492,7 +511,46 @@ export function ExtractForm({
         </>
       )}
 
-      {!bulk && (
+      {sourceFiles && (
+        <>
+          {beforeStart.length > 0 && note('error', `${country.name} has data from ${fmtMonth(country.startPeriod!)} onwards; ${listMonths(beforeStart)} can't be downloaded. Pick later months.`)}
+          {unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet, so the source can have no files for them.`)}
+          <div className="run-summary">
+            <dl>
+              <div>
+                <dt>Months</dt>
+                <dd>{start ? fmtRange([start, end]) : '—'}</dd>
+              </div>
+              <div>
+                <dt>Flows</dt>
+                <dd>{fmtFlows(flows)}</dd>
+              </div>
+              <div>
+                <dt>Files</dt>
+                <dd>As published by the source</dd>
+              </div>
+              <div>
+                <dt>Saved to</dt>
+                <dd>This device (browser download)</dd>
+              </div>
+            </dl>
+            <Button variant="primary" icon={<Icon.Download size={15} />} disabled={!start || !end || beforeStart.length > 0} onClick={() => setShowSourceFiles(true)}>
+              Get files{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
+            </Button>
+          </div>
+          <SourceFilesModal
+            open={showSourceFiles}
+            onClose={() => setShowSourceFiles(false)}
+            countryCode={country.code}
+            start={start}
+            end={end}
+            flow={flow}
+            description={sourceFiles.description}
+          />
+        </>
+      )}
+
+      {!bulk && !sourceFiles && (
         <>
           {error && note('error', error)}
           {!error && tuningInvalid && note('error', 'Advanced options are out of range: 1–20 parallel requests, 1–600 per minute, 0–10 retries, 1–60 seconds.')}

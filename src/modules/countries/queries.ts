@@ -46,6 +46,7 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
       method: edit.method || base?.source.method || (row.kind === 'manual' ? MANUAL_METHOD : ''),
       output: edit.output || base?.source.output || (row.kind === 'manual' ? MANUAL_OUTPUT : ''),
       fileUrl: row.kind === 'manual' ? (edit.fileUrl ?? '') : '',
+      links: base?.source.links ?? [],
     },
     notes: edit.notes ?? '',
     lagMonths,
@@ -58,6 +59,12 @@ function build(row: ConfigRow, months: MonthRow[], lastExtractedAt: string | und
     hsCodeCount: base?.hsCodeCount ?? 0,
     testHsCodeCount: base?.testHsCodeCount ?? 0,
     allHsCodes: Boolean(base?.allHsCodes),
+    sourceFiles: Boolean(base?.sourceFiles),
+    access: {
+      // Older services don't say whether a country is extractable: it is, unless it only has source files
+      api: row.kind === 'api' && base?.extractable !== false && !base?.sourceFiles,
+      direct: row.kind === 'api' ? Boolean(base?.sourceFiles || base?.bulkDownload) : Boolean(edit.fileUrl),
+    },
     recentPeriods: recentPublishedPeriods(lagMonths, publishDay, 12).filter((p) => !startPeriod || p >= startPeriod),
     completedMonths: completed,
     extractingMonths: months.filter((m) => m.status === 'extracting').map((m) => m.period),

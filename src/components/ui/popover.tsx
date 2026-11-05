@@ -48,10 +48,11 @@ export function PopoverPanel({
   width,
   children,
   style,
+  className,
   ...rest
 }: { align?: 'start' | 'end'; width?: number | string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`popover surface-pop popover-${align}`} style={{ width, ...style }} {...rest}>
+    <div className={`popover surface-pop popover-${align} ${className ?? ""}`} style={{ width, ...style }} {...rest}>
       {children}
     </div>
   );

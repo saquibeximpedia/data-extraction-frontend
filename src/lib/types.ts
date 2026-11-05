@@ -28,6 +28,14 @@ export interface CountrySource {
   output: string;
   /** Download-only countries: a direct link to a month's file ({YYYY} {YY} {MM} {M} placeholders); '' when none */
   fileUrl: string;
+  /** More pages about the data, e.g. the imports and exports pages (older services send none) */
+  links?: SourceLink[];
+}
+
+/** A page about a source's data, e.g. where its imports are published */
+export interface SourceLink {
+  label: string;
+  url: string;
 }
 
 /** What the extraction service can do for one country (GET {service}/api/countries) */
@@ -65,6 +73,11 @@ export interface ExtractorInfo {
   bulkDownload?: BulkDownload | null;
   /** False for download-only countries: bulkDownload links only (older services don't say: extractable) */
   extractable?: boolean;
+  /**
+   * Set for source-files countries: the service looks up each month's files and the browser
+   * downloads them straight from the source to this device; nothing is stored or extracted
+   */
+  sourceFiles?: { description: string } | null;
   lagMonths: number;
   publishDay: number;
   /** Earliest month with data (older services don't say) */
@@ -110,6 +123,10 @@ export interface Country {
   testHsCodeCount: number;
   /** Every HS code comes with each month: no saved list needed */
   allHsCodes: boolean;
+  /** Its monthly files download straight from the source to the user's device (nothing is stored) */
+  sourceFiles: boolean;
+  /** How its data can be had, shown as badges: extracted through an API, downloaded straight from the source, or both */
+  access: CountryAccess;
   recentPeriods: string[]; // "YYYY-MM", oldest first: the latest months the source should have out (none before startPeriod)
   completedMonths: string[]; // marked completed by users, oldest first
   extractingMonths: string[]; // an extraction was started; not marked completed yet
@@ -120,6 +137,16 @@ export interface Country {
   updatedBy: string | null;
   /** When the extraction service last published its details for this country */
   extractorSyncedAt: string | null;
+}
+
+/**
+ * api: the extraction service extracts it and saves the files to the database.
+ * direct: its files download straight from the source to the user's device (bulk links, source
+ * files, or a download-only country's direct file link). Neither: files are uploaded by hand.
+ */
+export interface CountryAccess {
+  api: boolean;
+  direct: boolean;
 }
 
 /** Admin-editable country fields */
@@ -292,6 +319,13 @@ export interface MergeJob {
   /** Outputs kept on the server instead of the cloud, with why */
   onServer: { path: string; reason: string }[];
   error?: string;
+}
+
+/** A month and flow's files at the source (GET {service}/api/countries/:code/source-files); none when it isn't published yet */
+export interface SourceMonth {
+  period: string;
+  flow: TradeFlow;
+  files: { name: string; url: string }[];
 }
 
 /** Response of POST {service}/api/extractions: runs start in the background */
