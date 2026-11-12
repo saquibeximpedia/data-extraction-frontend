@@ -11,7 +11,9 @@ const settle = <T,>(pending: Promise<T>, fallback: T) => pending.then((data) => 
 
 /** Stored files by country and month, recent files and share links: /files?country=ZAF, a country's test files /files?test=ZAF, or /files?view=shares */
 export default async function FilesPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const [, params, stored, list, links] = await Promise.all([requireUser(), searchParams, settle(files.list(), []), countries.list(), settle(shares.list(), [])]);
+  // Share links are only needed in their own view: they come in after the files, as they are ready
+  const links = settle(shares.list(), []);
+  const [, params, stored, list] = await Promise.all([requireUser(), searchParams, settle(files.list(), []), countries.list()]);
   return (
     <FilesBrowser
       // A link to another view (e.g. from a toast) starts the page over there
@@ -19,8 +21,7 @@ export default async function FilesPage({ searchParams }: { searchParams: Promis
       files={stored.data}
       filesError={stored.error}
       countries={list}
-      shares={links.data}
-      sharesError={links.error}
+      shares={links}
       params={params}
     />
   );

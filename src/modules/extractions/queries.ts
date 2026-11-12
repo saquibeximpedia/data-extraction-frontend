@@ -1,4 +1,5 @@
 import 'server-only';
+import { cached } from '@/lib/cache';
 import { result } from '@/lib/http';
 import { admin } from '@/lib/supabase/server';
 import type { Run, RunLog } from '@/lib/types';
@@ -24,16 +25,16 @@ const table = () => admin().from('runs').select('*').order('started_at', { ascen
  */
 export const runs = {
   /** The latest extractions, newest first (only a country's, when given) */
-  async list(limit = 50, country?: string): Promise<Run[]> {
+  list: cached(['runs'], 'runs.list', 10, async (limit: number = 50, country?: string): Promise<Run[]> => {
     let query = table().limit(limit);
     if (country) query = query.contains('params', { plans: [{ countryCode: country.toUpperCase() }] });
     return (await result(query, 'list runs')).data.map(toRun);
-  },
+  }),
 
   /** Extractions the database says are running (the live service may know better) */
-  async running(): Promise<Run[]> {
+  running: cached(['runs'], 'runs.running', 10, async (): Promise<Run[]> => {
     return (await result(table().eq('status', 'RUNNING').limit(50), 'running runs')).data.map(toRun);
-  },
+  }),
 
   async get(id: string): Promise<Run | null> {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return null;

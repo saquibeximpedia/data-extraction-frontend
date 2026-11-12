@@ -2,6 +2,7 @@ import 'server-only';
 import crypto from 'crypto';
 import { promisify } from 'util';
 import { displayName } from '@/lib/files';
+import { cached } from '@/lib/cache';
 import { badRequest, HttpError, notFound, result, throttle } from '@/lib/http';
 import { admin } from '@/lib/supabase/server';
 import type { PublicShare, Share, SharedFile } from '@/lib/types';
@@ -107,10 +108,10 @@ export const shares = {
     return { ...toShare(data), reused: false };
   },
 
-  async list(): Promise<Share[]> {
+  list: cached(['shares'], 'shares.list', 60, async (): Promise<Share[]> => {
     const { data } = await result(table().select('*').order('created_at', { ascending: false }).limit(500), 'list links');
     return data.map(toShare);
-  },
+  }),
 
   /** Deleting the row is what revokes the link */
   async remove(id: string): Promise<void> {

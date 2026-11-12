@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useProgress } from '@/components/run-progress';
 import { ServiceNotice } from '@/components/service-notice';
 import { Badge, Button, Empty, FilterTabs, Icon, Panel, ProgressBar, revealStyle, When } from '@/components/ui';
 import { fmtMs, fmtNumber, plural } from '@/lib/format';
-import { useChangedKeys, useRowLink } from '@/lib/hooks';
+import { useChangedKeys, useRefresh, useRowLink } from '@/lib/hooks';
 import { describeRun, fmtRecords, isRunning, needsAttention, runNotes, timeTaken } from '@/lib/runs';
+import { useGlobalState } from '@/lib/store';
 import type { Run } from '@/lib/types';
 import { useApp, useRuns } from '@/modules/service/store';
 import { Elapsed, RunBar, RunStatusBadge, StopButton } from './RunParts';
@@ -122,10 +121,9 @@ function LiveSection() {
 /** What runs now (from the service), then the history (from the database) */
 export function ExtractionsList({ history }: { history: Run[] }) {
   const { serviceLive } = useApp();
-  const router = useRouter();
-  const [refreshing, startRefresh] = useTransition();
+  const { refreshing, refresh } = useRefresh();
   const runs = useRuns(history);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useGlobalState<Filter>('extractions:filter', 'all');
   // While the service is live, its running extractions have their own section above
   const list = runs.filter((r) => !(serviceLive && isRunning(r)));
   const shown = filter === 'all' ? list : list.filter(needsAttention);
@@ -152,7 +150,7 @@ export function ExtractionsList({ history }: { history: Run[] }) {
                 { value: 'attention', label: 'Needs attention', count: attention },
               ]}
             />
-            <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing} onClick={() => startRefresh(() => router.refresh())}>
+            <Button variant="secondary" size="sm" icon={<Icon.Refresh size={14} />} loading={refreshing} onClick={refresh}>
               Refresh
             </Button>
           </div>

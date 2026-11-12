@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { usePresence, useLatched } from './presence';
 import { createPortal } from 'react-dom';
 import { Button } from './button';
 import { Icon } from './icons';
@@ -35,18 +36,27 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose, busy]);
 
-  if (!open) return null;
+  // On close it fades out showing what it had, though the page may already have cleared that
+  const { mounted, closing } = usePresence(open);
+  const shown = useLatched({ title, icon, danger, wide, children }, open);
+  if (!mounted) return null;
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()} role="dialog" aria-modal="true" aria-label={title}>
-      <div className={`modal-card surface-pop ${wide ? 'modal-wide' : ''}`}>
+    <div
+      className={`modal-backdrop ${closing ? 'closing' : ''}`}
+      onMouseDown={(e) => open && e.target === e.currentTarget && !busy && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={shown.title}
+    >
+      <div className={`modal-card surface-pop ${shown.wide ? 'modal-wide' : ''}`}>
         <div className="modal-head">
-          {icon !== undefined && <div className={`modal-icon-wrap ${danger ? 'modal-icon-danger' : 'modal-icon-neutral'}`}>{icon}</div>}
-          <h3 className="modal-title">{title}</h3>
+          {shown.icon !== undefined && <div className={`modal-icon-wrap ${shown.danger ? 'modal-icon-danger' : 'modal-icon-neutral'}`}>{shown.icon}</div>}
+          <h3 className="modal-title">{shown.title}</h3>
           <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Close">
             <Icon.X size={15} />
           </button>
         </div>
-        {children}
+        {shown.children}
       </div>
     </div>,
     document.body

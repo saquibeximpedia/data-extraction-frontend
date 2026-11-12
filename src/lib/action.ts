@@ -1,17 +1,21 @@
 import 'server-only';
 import { revalidatePath } from 'next/cache';
+import { expireData } from './cache';
 import { HttpError } from './http';
 import type { ActionResult } from './result';
 
 /**
  * The body of a server action. An HttpError comes back as { ok: false, error } (Next hides thrown
- * errors in production); anything else is logged and reported as a 500. A change refreshes every
- * page's server data, so the page that called it re-renders with it.
+ * errors in production); anything else is logged and reported as a 500. A change expires the cached
+ * data and refreshes every page's, so the page that called it re-renders with it.
  */
 export async function act<T>(task: () => Promise<T>, { revalidate = true } = {}): Promise<ActionResult<T>> {
   try {
     const data = await task();
-    if (revalidate) revalidatePath('/', 'layout');
+    if (revalidate) {
+      expireData();
+      revalidatePath('/', 'layout');
+    }
     return { ok: true, data };
   } catch (err) {
     if (err instanceof HttpError) return { ok: false, error: err.message, status: err.status };

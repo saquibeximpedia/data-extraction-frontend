@@ -22,3 +22,4 @@ export { Dock } from './dock';
 export { Panel, Empty, StatTiles, ProgressBar, StatusDot, revealStyle } from './panel';
 export type { StatTile } from './panel';
 export { When } from './when';
+export { Collapsible, usePresence, useLatched } from './presence';

@@ -22,6 +22,7 @@ import {
   Folder,
   FunnelSimple,
   GitMerge,
+  Info,
   Gear,
   Globe,
   LinkSimple,
@@ -94,4 +95,5 @@ export const Icon = {
   List: icon(List),
   Link: icon(LinkSimple),
   Merge: icon(GitMerge),
+  Info: icon(Info),
 };

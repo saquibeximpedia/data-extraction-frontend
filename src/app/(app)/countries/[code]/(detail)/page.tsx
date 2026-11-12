@@ -1,21 +1,23 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CountryUpload } from '@/components/country-upload';
 import { AccessBadges } from '@/components/access-badges';
 import { PageHead } from '@/components/page-head';
+import { RecentRunsSkeleton } from '@/components/skeletons';
 import { SourceInfo } from '@/components/source-info';
 import { CodeTag, Icon, Panel, When } from '@/components/ui';
 import { requireUser } from '@/modules/auth/session';
 import { CountryMonths } from '@/modules/countries/components/CountryMonths';
 import { CountryOverview, ExtractLink } from '@/modules/countries/components/CountryOverview';
-import { RecentRuns } from '@/modules/countries/components/RecentRuns';
+import { RecentRunsLoader } from '@/modules/countries/components/RecentRuns';
 import { countries } from '@/modules/countries/queries';
 import { runs } from '@/modules/extractions/queries';
 
 /** A country: its next step, numbers, every year's months (editable), source and recent extractions */
 export default async function CountryPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
-  const [me, country, running, recent] = await Promise.all([requireUser(), countries.find(code), runs.running(), runs.list(5, code)]);
+  const [me, country, running] = await Promise.all([requireUser(), countries.find(code), runs.running()]);
   if (!country) notFound();
 
   return (
@@ -74,7 +76,11 @@ export default async function CountryPage({ params }: { params: Promise<{ code: 
 
       <div className="country-bottom">
         <SourceInfo country={country} i={4} />
-        {country.kind === 'api' && <RecentRuns code={country.code} runs={recent} />}
+        {country.kind === 'api' && (
+          <Suspense fallback={<RecentRunsSkeleton />}>
+            <RecentRunsLoader code={country.code} />
+          </Suspense>
+        )}
       </div>
     </>
   );

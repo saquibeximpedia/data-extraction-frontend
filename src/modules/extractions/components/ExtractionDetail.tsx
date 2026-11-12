@@ -21,6 +21,7 @@ import { formatLogMessage, RunOutcome, RunStatusBadge, StopButton } from './RunP
  * click to mark them completed), or a way to run it again when it did not finish.
  */
 function AfterRun({ run, countries }: { run: Run; countries: Country[] }) {
+  const { serviceLive } = useApp();
   const failed = run.status !== 'COMPLETED';
   const items = (run.params?.plans ?? []).flatMap((plan) => {
     const country = countries.find((c) => c.code === plan.countryCode);
@@ -52,7 +53,7 @@ function AfterRun({ run, countries }: { run: Run; countries: Country[] }) {
           }
           actions={
             <>
-              {failed && (
+              {failed && serviceLive && (
                 <Link href={extractHref(country.code, plan.periods)} className="btn btn-secondary btn-md">
                   <Icon.Refresh size={14} /> Run again
                 </Link>

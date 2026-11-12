@@ -315,6 +315,8 @@ svg { flex: none; }
 .text-btn { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; font-size: 12.5px; font-weight: 500; color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; cursor: pointer; }
 .text-btn:hover:not(:disabled) { text-decoration-color: currentColor; }
 .text-btn:disabled { opacity: 0.6; cursor: default; }
+/* A file picker styled as a text button: its hidden input carries the keyboard focus */
+label.text-btn:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ============================================================
    Form controls; what is selected is a raised pill on a sunken track
@@ -396,6 +398,15 @@ svg { flex: none; }
 .more-toggle svg { color: var(--faint); transition: transform 0.2s var(--ease); }
 .more-toggle.open svg { transform: rotate(180deg); }
 .more-body { display: grid; gap: 0; animation: rise 0.2s var(--ease) both; }
+/* Which range of months costs least at the source, under the month picker */
+.range-advice { display: flex; gap: 6px; align-items: flex-start; }
+.range-advice > svg { flex: none; margin-top: 3px; }
+/* A section folding away: its height shrinks to nothing as it fades (see Collapsible) */
+.collapsible { display: grid; grid-template-rows: 1fr; }
+.collapsible > * { min-height: 0; }
+.collapsible.closing { animation: fold 0.15s var(--ease) both; pointer-events: none; }
+.collapsible.closing > * { overflow: hidden; }
+@keyframes fold { to { grid-template-rows: 0fr; opacity: 0; } }
 
 /* Notes: warnings that belong next to what they are about (results go in toasts) */
 .note { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 10px 14px; border-radius: var(--r); font-size: 13px; line-height: 1.45; box-shadow: inset 0 1px 0 var(--lg-highlight); }
@@ -417,6 +428,8 @@ svg { flex: none; }
 .popover-start { left: 0; }
 .popover-end { right: 0; transform-origin: top right; }
 @keyframes pop { from { opacity: 0; transform: translateY(-3px); } }
+.popover.closing { animation: popOut 0.12s var(--ease) both; pointer-events: none; }
+@keyframes popOut { to { opacity: 0; transform: translateY(-3px); } }
 
 .option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
 .option.active { background: var(--hover); }
@@ -943,6 +956,10 @@ button.year-label:hover { background: var(--sunken); }
 .modal-center { display: flex; justify-content: center; padding-top: 4px; }
 @keyframes fadeIn { from { opacity: 0; } }
 @keyframes modalIn { from { opacity: 0; transform: translateY(6px); } }
+.modal-backdrop.closing { animation: fadeOut 0.15s var(--ease) both; pointer-events: none; }
+.modal-backdrop.closing .modal-card { animation: modalOut 0.15s var(--ease) both; }
+@keyframes fadeOut { to { opacity: 0; } }
+@keyframes modalOut { to { opacity: 0; transform: translateY(6px); } }
 .modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .modal-icon-wrap { width: 34px; height: 34px; border-radius: var(--r); display: grid; place-items: center; flex: none; }
 .modal-icon-danger { background: var(--red-soft); color: var(--red); }

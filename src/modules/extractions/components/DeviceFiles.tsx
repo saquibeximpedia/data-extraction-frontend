@@ -5,6 +5,7 @@ import { Button, FileIcon, Icon, ProgressBar, useToast } from '@/components/ui';
 import { fmtNumber, fmtSize, plural } from '@/lib/format';
 import { canUseFolders, eachLimited, hasAccess, pickFolder, savedFolder, writeUnpacked, type Dir, type FolderCache } from '@/lib/local-folder';
 import { errorText } from '@/lib/result';
+import { runTask, useTask } from '@/lib/tasks';
 import type { Run } from '@/lib/types';
 import { extractor, type HeldFile } from '@/modules/service/client';
 import { useApp } from '@/modules/service/store';
@@ -17,12 +18,14 @@ interface Saving {
   total: number;
   bytes: number;
   totalBytes: number;
+  failed: string[];
 }
 
 /**
  * Files of a run saved to the device. The service holds each finished month until this page
  * downloads it into the chosen folder ({CC}/{YYYY}/{MM}/{FLOW}/{file}) and then drops it. With folder access
- * already granted that happens by itself when the page opens; otherwise one click allows it.
+ * already granted that happens by itself when the page opens; otherwise one click allows it. The
+ * saving carries on when the page is left, and shows again on coming back.
  */
 export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {
   const toast = useToast();
@@ -30,9 +33,10 @@ export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {
   const [folder, setFolder] = useState<Dir | null>(null);
   const [held, setHeld] = useState<HeldFile[] | null>(null);
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState<Saving | null>(null);
-  const [failed, setFailed] = useState<string[]>([]);
-  const live = useRef<Saving | null>(null);
+  const taskKey = `device-files:${run.id}`;
+  const task = useTask<Saving>(taskKey);
+  const saving = task?.running ? task.progress : null;
+  const failed = task && !task.running ? task.progress.failed : [];
   const autoTried = useRef(false);
 
   const load = useCallback(
@@ -47,18 +51,11 @@ export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {
   useEffect(() => {
     savedFolder().then((dir) => dir && setFolder(dir));
   }, []);
-  // Months are held once the run ends (a stopped run's too)
-  useEffect(() => {
-    if (!running && serviceLive) load();
-  }, [running, serviceLive, load]);
-
-  // Bytes arrive per chunk; the progress redraws a few times a second instead
+  // Months are held once the run ends (a stopped run's too); looked at again after each saving
   const isSaving = saving !== null;
   useEffect(() => {
-    if (!isSaving) return;
-    const timer = setInterval(() => live.current && setSaving({ ...live.current }), 250);
-    return () => clearInterval(timer);
-  }, [isSaving]);
+    if (!running && serviceLive && !isSaving) load();
+  }, [running, serviceLive, isSaving, load]);
 
   const save = useCallback(
     async (files: HeldFile[], chosen: Dir | null, ask: boolean) => {
@@ -69,42 +66,35 @@ export function DeviceFiles({ run, running }: { run: Run; running: boolean }) {
         if (ask) toast('err', 'No access to the folder', `Allow editing files in "${root.name}" to save the files there.`);
         return;
       }
-      const p: Saving = { done: 0, total: files.length, bytes: 0, totalBytes: files.reduce((n, f) => n + f.size, 0) };
-      live.current = p;
-      setSaving({ ...p });
-      setFailed([]);
-      const controller = new AbortController();
-      const cache: FolderCache = new Map();
-      const saved: string[] = [];
-      const errors: string[] = [];
-      await eachLimited(files, 2, controller.signal, async (file) => {
-        try {
-          await writeUnpacked(root, file.path, () => extractor.heldFile(run.id, file.path, controller.signal), cache, controller.signal, (n) => (p.bytes += n));
-          saved.push(file.path);
-          p.done++;
-        } catch (err) {
-          errors.push(`${file.path}: ${err instanceof Error ? err.message : 'failed'}`);
-        }
+      const start: Saving = { done: 0, total: files.length, bytes: 0, totalBytes: files.reduce((n, f) => n + f.size, 0), failed: [] };
+      await runTask(taskKey, start, async (p, signal) => {
+        const cache: FolderCache = new Map();
+        const saved: string[] = [];
+        await eachLimited(files, 2, signal, async (file) => {
+          try {
+            await writeUnpacked(root, file.path, () => extractor.heldFile(run.id, file.path, signal), cache, signal, (n) => (p.bytes += n));
+            saved.push(file.path);
+            p.done++;
+          } catch (err) {
+            p.failed.push(`${file.path}: ${err instanceof Error ? err.message : 'failed'}`);
+          }
+        });
+        // Only what reached the folder is dropped from the service; the rest can be tried again
+        if (saved.length) await extractor.clearHeld(run.id, saved).catch(() => {});
+        toast(p.failed.length ? 'err' : 'ok', p.failed.length ? `${p.failed.length} file(s) could not be saved` : `Saved ${plural(saved.length, 'file')} to ${root.name}`);
       });
-      // Only what reached the folder is dropped from the service; the rest can be tried again
-      if (saved.length) await extractor.clearHeld(run.id, saved).catch(() => {});
-      live.current = null;
-      setSaving(null);
-      setFailed(errors);
-      toast(errors.length ? 'err' : 'ok', errors.length ? `${errors.length} file(s) could not be saved` : `Saved ${plural(saved.length, 'file')} to ${root.name}`);
-      await load();
     },
-    [run.id, toast, load]
+    [run.id, taskKey, toast]
   );
 
-  // Saves by itself when the folder is remembered and still allowed (no click needed then)
+  // Saves by itself when the folder is remembered and still allowed (no click needed then), once a visit
   useEffect(() => {
-    if (autoTried.current || !held?.length || !folder || saving) return;
+    if (autoTried.current || !held?.length || !folder || task) return;
     autoTried.current = true;
     hasAccess(folder, false).then((ok) => {
       if (ok) save(held, folder, false);
     });
-  }, [held, folder, saving, save]);
+  }, [held, folder, task, save]);
 
   const waiting = held ?? [];
   return (

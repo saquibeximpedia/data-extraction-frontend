@@ -12,12 +12,14 @@ import { useExtractability } from '@/modules/service/store';
 import { useCountryStatus } from '../hooks';
 import { describeStep, monthsWord, type CountryStatus } from '../status';
 
-/** The Extract button in the country's head: primary while the service can extract it */
+/** The Extract button in the country's head: primary while the service can extract it, gone while it is offline */
 export function ExtractLink({ country, running }: { country: Country; running: Run[] }) {
   const extractability = useExtractability();
   const { due } = useCountryStatus(country, running);
+  const { ok, reason } = extractability(country.code);
+  if (reason === 'offline') return null;
   return (
-    <Link href={extractHref(country.code, due)} className={`btn btn-md ${extractability(country.code).ok ? 'btn-primary' : 'btn-secondary'}`}>
+    <Link href={extractHref(country.code, due)} className={`btn btn-md ${ok ? 'btn-primary' : 'btn-secondary'}`}>
       <Icon.Play size={13} /> Extract
     </Link>
   );

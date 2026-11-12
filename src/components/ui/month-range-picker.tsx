@@ -39,7 +39,7 @@ export function MonthRangePicker({
   single?: boolean;
   min?: string | null;
 }) {
-  const { open, setOpen, close, rootRef, triggerRef } = usePopover();
+  const { open, setOpen, close, rootRef, triggerRef, mounted, closing } = usePopover();
   const [year, setYear] = useState(() => Number((end || start || '').slice(0, 4)) || new Date().getFullYear());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -92,8 +92,8 @@ export function MonthRangePicker({
         </span>
       </button>
 
-      {open && (
-        <PopoverPanel width={320} role="dialog" aria-label={single ? "Choose month" : "Choose month range"}>
+      {mounted && (
+        <PopoverPanel width={320} closing={closing} role="dialog" aria-label={single ? "Choose month" : "Choose month range"}>
           <div className="mp-head">
             <button type="button" className="btn btn-ghost btn-sm btn-icon" onClick={() => setYear((y) => y - 1)} aria-label="Previous year">
               <Icon.ChevronLeft />

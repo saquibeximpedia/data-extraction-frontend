@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Field, Panel, ProgressBar, Segmented, useToast } from '@/components/ui';
 import { fmtNumber, fmtSize } from '@/lib/format';
 import { canUseFolders, eachLimited, hasAccess, isSaved, pickFolder, saveDestination, savedDestination, savedFolder, writeUnpacked, type Destination, type Dir, type FolderCache } from '@/lib/local-folder';
 import { errorText, unwrap } from '@/lib/result';
+import { runTask, stopTask, useTask } from '@/lib/tasks';
 import { fileUrls, syncList } from '@/modules/files/actions';
 
 /** Files downloaded at once, and links asked for per call */
 const PARALLEL = 3;
 const BATCH = 100;
+const COPY_TASK = 'local-copy';
 
 interface Progress {
   phase: 'checking' | 'copying' | 'done' | 'stopped';
@@ -34,10 +36,10 @@ export function LocalCopy() {
   const [supported, setSupported] = useState(true);
   const [folder, setFolder] = useState<Dir | null>(null);
   const [destination, setDestination] = useState<Destination>('storage');
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const live = useRef<Progress | null>(null);
-  const stop = useRef<AbortController | null>(null);
-  const running = progress?.phase === 'checking' || progress?.phase === 'copying';
+  // Kept apart from the page: a copy carries on while you look elsewhere
+  const task = useTask<Progress>(COPY_TASK);
+  const progress = task?.progress ?? null;
+  const running = Boolean(task?.running);
 
   useEffect(() => {
     if (!canUseFolders()) return setSupported(false);
@@ -53,13 +55,6 @@ export function LocalCopy() {
     toast('ok', next === 'device' ? 'New extractions save to this device' : 'New extractions save to the database');
   }
 
-  // Counts change per chunk downloaded; the panel redraws a few times a second instead
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => live.current && setProgress({ ...live.current }), 250);
-    return () => clearInterval(timer);
-  }, [running]);
-
   async function pick(): Promise<Dir | null> {
     const dir = await pickFolder();
     if (dir) setFolder(dir);
@@ -74,57 +69,48 @@ export function LocalCopy() {
       return;
     }
 
-    const controller = new AbortController();
-    stop.current = controller;
-    const p: Progress = { phase: 'checking', total: 0, checked: 0, have: 0, toCopy: 0, copied: 0, bytes: 0, totalBytes: 0, failed: [] };
-    live.current = p;
-    setProgress({ ...p });
-    const finish = (phase: Progress['phase']) => {
-      p.phase = phase;
-      setProgress({ ...p });
-    };
+    const start: Progress = { phase: 'checking', total: 0, checked: 0, have: 0, toCopy: 0, copied: 0, bytes: 0, totalBytes: 0, failed: [] };
+    await runTask(COPY_TASK, start, async (p, signal) => {
+      try {
+        const list = await unwrap(syncList());
+        p.total = list.length;
 
-    try {
-      const list = await unwrap(syncList());
-      p.total = list.length;
+        // Which files are missing here, or differ in size (re-extracted since the last copy)
+        const existing: FolderCache = new Map();
+        const todo: typeof list = [];
+        for (const file of list) {
+          if (signal.aborted) return void (p.phase = 'stopped');
+          if (await isSaved(root, file.path, file.size, existing)) p.have++;
+          else todo.push(file);
+          p.checked++;
+        }
+        p.toCopy = todo.length;
+        p.totalBytes = todo.reduce((n, f) => n + f.size, 0);
+        p.phase = 'copying';
 
-      // Which files are missing here, or differ in size (re-extracted since the last copy)
-      const existing: FolderCache = new Map();
-      const todo: typeof list = [];
-      for (const file of list) {
-        if (controller.signal.aborted) return finish('stopped');
-        if (await isSaved(root, file.path, file.size, existing)) p.have++;
-        else todo.push(file);
-        p.checked++;
+        const made: FolderCache = new Map();
+        for (let i = 0; i < todo.length && !signal.aborted; i += BATCH) {
+          const batch = todo.slice(i, i + BATCH);
+          const urls = await unwrap(fileUrls(batch.map((f) => f.path)));
+          await eachLimited(batch, PARALLEL, signal, async (file) => {
+            try {
+              if (!urls[file.path]) throw new Error('no longer in storage');
+              await writeUnpacked(root, file.path, () => fetch(urls[file.path], { signal }), made, signal, (n) => (p.bytes += n));
+              p.copied++;
+            } catch (err) {
+              if (!signal.aborted) p.failed.push(`${file.path}: ${err instanceof Error ? err.message : 'failed'}`);
+            }
+          });
+        }
+        p.phase = signal.aborted ? 'stopped' : 'done';
+        if (!signal.aborted) {
+          toast(p.failed.length ? 'err' : 'ok', p.failed.length ? `${p.failed.length} file(s) could not be copied` : `Folder is up to date: ${fmtNumber(p.copied)} copied, ${fmtNumber(p.have)} already there`);
+        }
+      } catch (err) {
+        p.phase = 'stopped';
+        toast('err', 'Could not copy the files', errorText(err));
       }
-      p.toCopy = todo.length;
-      p.totalBytes = todo.reduce((n, f) => n + f.size, 0);
-      p.phase = 'copying';
-
-      const made: FolderCache = new Map();
-      for (let i = 0; i < todo.length && !controller.signal.aborted; i += BATCH) {
-        const batch = todo.slice(i, i + BATCH);
-        const urls = await unwrap(fileUrls(batch.map((f) => f.path)));
-        await eachLimited(batch, PARALLEL, controller.signal, async (file) => {
-          try {
-            if (!urls[file.path]) throw new Error('no longer in storage');
-            await writeUnpacked(root, file.path, () => fetch(urls[file.path], { signal: controller.signal }), made, controller.signal, (n) => (p.bytes += n));
-            p.copied++;
-          } catch (err) {
-            if (!controller.signal.aborted) p.failed.push(`${file.path}: ${err instanceof Error ? err.message : 'failed'}`);
-          }
-        });
-      }
-      finish(controller.signal.aborted ? 'stopped' : 'done');
-      if (!controller.signal.aborted) {
-        toast(p.failed.length ? 'err' : 'ok', p.failed.length ? `${p.failed.length} file(s) could not be copied` : `Folder is up to date: ${fmtNumber(p.copied)} copied, ${fmtNumber(p.have)} already there`);
-      }
-    } catch (err) {
-      finish('stopped');
-      toast('err', 'Could not copy the files', errorText(err));
-    } finally {
-      stop.current = null;
-    }
+    });
   }
 
   const desc = 'Where extractions started in this browser save their files, and a copy of every stored file into a folder here, in the same folders as in storage.';
@@ -179,7 +165,7 @@ export function LocalCopy() {
           {folder ? 'Change folder' : 'Choose folder'}
         </Button>
         {running ? (
-          <Button size="sm" variant="secondary" onClick={() => stop.current?.abort()}>
+          <Button size="sm" variant="secondary" onClick={() => stopTask(COPY_TASK)}>
             Stop
           </Button>
         ) : (

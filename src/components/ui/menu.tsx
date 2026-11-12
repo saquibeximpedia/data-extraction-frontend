@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePopover, FloatingPanel } from './popover';
+import { useLatched, usePresence } from './presence';
 import { Icon } from './icons';
 
 export interface MenuItem {
@@ -37,7 +38,7 @@ export function Menu({
   header?: React.ReactNode;
   width?: number;
 }) {
-  const { open, setOpen, close, rootRef, triggerRef, panelRef } = usePopover();
+  const { open, setOpen, close, rootRef, triggerRef, panelRef, mounted, closing } = usePopover();
   const dismiss = useCallback(() => setOpen(false), [setOpen]);
 
   return (
@@ -54,8 +55,8 @@ export function Menu({
       >
         {trigger?.content ?? <Icon.More />}
       </button>
-      {open && (
-        <FloatingPanel anchor={triggerRef.current} panelRef={panelRef} onDismiss={dismiss} width={width} role="menu">
+      {mounted && (
+        <FloatingPanel anchor={triggerRef.current} panelRef={panelRef} onDismiss={dismiss} width={width} closing={closing} role="menu">
           <MenuItems items={items} header={header} close={close} />
         </FloatingPanel>
       )}
@@ -124,10 +125,14 @@ export function ContextMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // Closing, it fades out where it was, with the items it had
+  const { mounted, closing } = usePresence(Boolean(at));
+  const shown = useLatched({ at, items, header }, Boolean(at));
 
   // Placed once its height is known, flipped up or left near the window's edges
   useLayoutEffect(() => {
-    if (!at || !ref.current) return setPos(null);
+    if (!at) return;
+    if (!ref.current) return setPos(null);
     const { height } = ref.current.getBoundingClientRect();
     const left = Math.max(8, Math.min(at.x, window.innerWidth - width - 8));
     const top = at.y + height + 8 > window.innerHeight ? Math.max(8, at.y - height) : at.y;
@@ -153,17 +158,17 @@ export function ContextMenu({
     };
   }, [at, onClose]);
 
-  if (!at) return null;
+  if (!mounted || !shown.at) return null;
   return createPortal(
     <div
       ref={ref}
       role="menu"
       aria-label={label}
-      className="popover surface-pop popover-floating"
-      style={{ position: 'fixed', top: pos?.top ?? at.y, left: pos?.left ?? at.x, width, visibility: pos ? 'visible' : 'hidden' }}
+      className={`popover surface-pop popover-floating ${closing ? 'closing' : ''}`}
+      style={{ position: 'fixed', top: pos?.top ?? shown.at.y, left: pos?.left ?? shown.at.x, width, visibility: pos ? 'visible' : 'hidden' }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <MenuItems items={items} header={header} close={onClose} />
+      <MenuItems items={shown.items} header={shown.header} close={onClose} />
     </div>,
     document.body
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { Badge, Button, ConfirmModal, Empty, Icon, When } from '@/components/ui';
 import { fmtSize, plural } from '@/lib/format';
 import { useAction } from '@/lib/hooks';
@@ -11,8 +11,12 @@ import { useCopyLink } from './ShareModal';
 
 const shareTitle = (s: Share) => s.title || (s.files.length === 1 ? s.files[0].name : plural(s.files.length, 'file'));
 
-/** Every share link, each with Copy and Remove; `error` when they could not be listed */
-export function SharesList({ shares, error }: { shares: Share[]; error: string }) {
+/** Share links as the server sends them: the list, or why it could not be read */
+export type SharesResult = Promise<{ data: Share[]; error: string }>;
+
+/** Every share link, each with Copy and Remove; read as it arrives (in a Suspense boundary) */
+export function SharesList({ pending }: { pending: SharesResult }) {
+  const { data: shares, error } = use(pending);
   const copy = useCopyLink();
   const [toRemove, setToRemove] = useState<Share | null>(null);
   const { busy: removing, run } = useAction();

@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isUploadable, UPLOAD_ACCEPT } from '@/lib/files';
 import { fmtMonth, fmtSize, hostOf, plural } from '@/lib/format';
+import { refreshData } from '@/lib/refresh';
 import { dueMonths, fileUrlFor, latestPublished, monthState } from '@/lib/months';
 import { AppError, errorText, unwrap } from '@/lib/result';
 import { supabase } from '@/lib/supabase/browser';
+import { runTask, useTask } from '@/lib/tasks';
 import type { Country } from '@/lib/types';
 import { fetchFromSource, uploadTarget } from '@/modules/files/actions';
 import { useSetMonths } from './month-actions';
@@ -23,6 +25,13 @@ async function upload(country: string, period: string, file: File): Promise<void
   const target = await unwrap(uploadTarget({ country, period, name: file.name }));
   const { error } = await supabase.storage.from(target.bucket).uploadToSignedUrl(target.path, target.token, file, { upsert: true });
   if (error) throw new AppError(error.message, 502);
+}
+
+/** An upload or a fetch from the source under way; `at` is the file being sent */
+interface Transfer {
+  kind: 'upload' | 'fetch';
+  at: number;
+  total: number;
 }
 
 /** Drop or choose .xlsx, .xls, .csv and .zip files; others are skipped with a toast */
@@ -84,47 +93,52 @@ export function CountryUpload({ country, showSource = true, onUploaded }: { coun
   const [picked, setPicked] = useState<File[]>([]);
   // Download-only countries are done once their files are in; extracted ones usually aren't
   const [markDone, setMarkDone] = useState(country.kind === 'manual');
-  const [busy, setBusy] = useState<'upload' | 'fetch' | null>(null);
-  const [progress, setProgress] = useState(0);
+  // Kept apart from the page: an upload carries on (and shows again) when the page is left
+  const taskKey = `upload:${country.code}`;
+  const task = useTask<Transfer>(taskKey);
+  const transfer = task?.running ? task.progress : null;
+  const busy = transfer?.kind ?? null;
 
   const alreadyDone = monthState(country, period) === 'completed';
 
   async function finish(done: number, title: string) {
     if (done && markDone && !alreadyDone) await setMonths(country, [period], 'completed');
     else if (done) toast('ok', title, `${country.name} ${fmtMonth(period)}`);
+    // The files went straight to Storage, past the server's cached list
+    await refreshData();
     router.refresh();
   }
 
   async function uploadPicked() {
-    setBusy('upload');
+    const files = picked;
     let done = 0;
-    for (const [i, file] of picked.entries()) {
-      setProgress(i + 1);
-      try {
-        await upload(country.code, period, file);
-        done++;
-      } catch (err) {
-        toast('err', `Could not upload ${file.name}`, errorText(err));
+    const ran = await runTask<Transfer>(taskKey, { kind: 'upload', at: 0, total: files.length }, async (p) => {
+      for (const [i, file] of files.entries()) {
+        p.at = i + 1;
+        try {
+          await upload(country.code, period, file);
+          done++;
+        } catch (err) {
+          toast('err', `Could not upload ${file.name}`, errorText(err));
+        }
       }
-    }
-    const all = done === picked.length;
+      await finish(done, `Uploaded ${plural(done, 'file')}`);
+    });
+    if (!ran) return;
     setPicked((prev) => prev.slice(done));
-    await finish(done, `Uploaded ${plural(done, 'file')}`);
-    setBusy(null);
-    if (all) onUploaded?.();
+    if (done === files.length) onUploaded?.();
   }
 
   /** The server downloads the month's file from the direct link */
   async function fetchFile() {
-    setBusy('fetch');
-    try {
-      const stored = await unwrap(fetchFromSource(country.code, period));
-      await finish(1, `Fetched ${stored.path.split('__').pop()} (${fmtSize(stored.sizeBytes)})`);
-    } catch (err) {
-      toast('err', `Could not fetch ${fmtMonth(period)} from the source`, errorText(err));
-    } finally {
-      setBusy(null);
-    }
+    await runTask<Transfer>(taskKey, { kind: 'fetch', at: 1, total: 1 }, async () => {
+      try {
+        const stored = await unwrap(fetchFromSource(country.code, period));
+        await finish(1, `Fetched ${stored.path.split('__').pop()} (${fmtSize(stored.sizeBytes)})`);
+      } catch (err) {
+        toast('err', `Could not fetch ${fmtMonth(period)} from the source`, errorText(err));
+      }
+    });
   }
 
   return (
@@ -170,7 +184,7 @@ export function CountryUpload({ country, showSource = true, onUploaded }: { coun
           </label>
         )}
         <Button variant="primary" icon={<Icon.Upload size={14} />} loading={busy === 'upload'} disabled={!period || !picked.length} onClick={uploadPicked}>
-          {busy === 'upload' ? (picked.length > 1 ? `Uploading ${progress} of ${picked.length}…` : 'Uploading…') : `Upload ${picked.length > 1 ? plural(picked.length, 'file') : 'file'}`}
+          {transfer?.kind === 'upload' ? (transfer.total > 1 ? `Uploading ${transfer.at} of ${transfer.total}…` : 'Uploading…') : `Upload ${picked.length > 1 ? plural(picked.length, 'file') : 'file'}`}
         </Button>
       </div>
     </fieldset>

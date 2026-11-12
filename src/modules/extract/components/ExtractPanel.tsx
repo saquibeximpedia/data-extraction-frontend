@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { MonthLegend, STATE_LABEL } from '@/components/months';
 import { RecheckButton, SetupNeeded, useSetupProblem } from '@/components/service-notice';
 import { ExtractSkeleton } from '@/components/skeletons';
@@ -10,6 +10,7 @@ import { accessLabel } from '@/components/access-badges';
 import { SourceInfo } from '@/components/source-info';
 import { Empty, Icon, Panel, Select } from '@/components/ui';
 import { fmtMonth, fmtRange } from '@/lib/format';
+import { useGlobalState } from '@/lib/store';
 import { MONTH_LABELS, dueMonths, monthState } from '@/lib/months';
 import type { Country } from '@/lib/types';
 import { useApp, useExtractability } from '@/modules/service/store';
@@ -27,9 +28,13 @@ function ServiceDown() {
       <h2 className="panel-title">The extraction service is offline</h2>
       <p className="panel-desc">
         Nothing answered at <span className="mono">{service.url}</span>
-        {service.error ? ` (${service.error.replace(/\.$/, '')})` : ''}. Start the backend, or point this browser at the one you are running. Months and files keep working meanwhile.
+        {service.error ? ` (${service.error.replace(/\.$/, '')})` : ''}. Nothing can be extracted until it runs: start the backend, or point this browser at the one you are running. Past
+        extractions, months and files keep working meanwhile.
       </p>
       <div className="inline-form">
+        <Link href="/extractions" className="btn btn-secondary btn-md">
+          <Icon.List size={14} /> Past extractions
+        </Link>
         <RecheckButton />
         <Link href="/service" className="btn btn-primary btn-md">
           <Icon.Gear size={14} /> Change URL
@@ -81,7 +86,9 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
   const extractability = useExtractability();
   const router = useRouter();
   const setupProblem = useSetupProblem(countries);
-  const code = requested.country?.toUpperCase();
+  // Without a country in the link, the one last picked this visit
+  const [lastCode, setLastCode] = useGlobalState<string | null>('extract:country', null);
+  const code = requested.country?.toUpperCase() ?? lastCode ?? undefined;
 
   const extractable = countries.filter((c) => c.kind === 'api');
   const requestedCountry = countries.find((c) => c.code === code);
@@ -89,9 +96,12 @@ export function ExtractPanel({ countries, requested }: { countries: Country[]; r
   const info = extractors?.find((e) => e.code === country?.code);
   // "Bulk file links" picked on the form (countries whose source publishes files), kept per country;
   // download-only countries have nothing else
-  const [bulkFor, setBulkFor] = useState<string | null>(null);
+  const [bulkFor, setBulkFor] = useGlobalState<string | null>('extract:bulk', null);
   const downloadOnly = isDownloadOnly(info);
   const bulk = Boolean(info?.bulkDownload) && (bulkFor === country?.code || downloadOnly);
+  useEffect(() => {
+    if (country) setLastCode(country.code);
+  }, [country?.code, setLastCode]);
 
   if (service.status === 'offline') return <ServiceDown />;
   if (service.status === 'checking' || !extractors) return <ExtractSkeleton />;

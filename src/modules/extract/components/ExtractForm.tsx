@@ -3,14 +3,18 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, Select, type MonthPreset } from '@/components/ui';
+import { Button, Collapsible, Field, Icon, MonthRangePicker, NumberInput, Panel, Segmented, Select, type MonthPreset } from '@/components/ui';
 import { fmtFlows, fmtMonth, fmtRange, plural, fmtNumber } from '@/lib/format';
 import { addMonths, dueMonths, isPeriod, latestPublished, periodRange } from '@/lib/months';
 import { hasAccess, pickFolder, savedDestination, savedFolder, type Destination, type Dir } from '@/lib/local-folder';
+import { refreshData } from '@/lib/refresh';
 import { AppError, errorText } from '@/lib/result';
+import { forgetGlobalState, useGlobalState, useHasGlobalState } from '@/lib/store';
 import type { AppSettings, Country, DatasetRef, ExtractorInfo, RunOptions, TradeFlow } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { BulkLinksModal, isDownloadOnly } from './BulkLinksModal';
+import { HS_FILE_ACCEPT, readHsFile } from '../hs-file';
+import { batchesYears, costOf, describeCost, rangeAdvice, requestCount, wholeYears } from '../plan';
 import { SourceFilesModal } from './SourceFilesModal';
 import { useApp } from '@/modules/service/store';
 
@@ -31,6 +35,8 @@ const flowName = (flow: TradeFlow, capital = false) => (flow === 'IMPORT' ? (cap
 const datasetYears = (d: DatasetRef) => (d.from === d.to ? String(d.from) : d.to >= 2100 ? `from ${d.from}` : `${d.from}–${d.to}`);
 
 const splitCodes = (text: string) => [...new Set(text.split(/[\s,;]+/).filter(Boolean))];
+/** Codes one run takes (the extraction service's limit) */
+const MAX_HS_CODES = 20_000;
 
 /** Presets from the latest month the source should have published; "catch up" covers every due month. None start before the start month. */
 function presetsFor(country: Country, range: boolean): MonthPreset[] {
@@ -71,6 +77,9 @@ function initialMonths(country: Country, requested: RequestedMonths): [string, s
   return due.length ? [due[0], due[due.length - 1]] : [latest, latest];
 }
 
+/** Where a country's form is kept; a link asking for other months starts its own */
+const draftKey = (code: string, requested: RequestedMonths) => `extract:${code}:${requested.start ?? ''}-${requested.end ?? ''}:`;
+
 /** Per-run tuning fields; empty ones keep the default shown as the placeholder */
 // The numeric options as typed in their fields (where the files go is chosen apart)
 type Tuning = Record<Exclude<keyof RunOptions, 'destination'>, string>;
@@ -96,7 +105,7 @@ function yearsFor(country: Country): string[] {
 }
 
 /** The form's title, with the country picker beside it */
-export function FormHead({ countrySelect, downloadOnly, sourceFiles }: { countrySelect: React.ReactNode; downloadOnly?: boolean; sourceFiles?: boolean }) {
+export function FormHead({ countrySelect, downloadOnly, sourceFiles, onReset }: { countrySelect: React.ReactNode; downloadOnly?: boolean; sourceFiles?: boolean; onReset?: () => void }) {
   return (
     <div className="extract-head">
       <div>
@@ -107,6 +116,14 @@ export function FormHead({ countrySelect, downloadOnly, sourceFiles }: { country
             : sourceFiles
               ? 'The source’s own files for each month, downloaded straight to this device as published. Nothing is saved on the server or in the database.'
               : 'Runs on the extraction service; follow it live under Extractions.'}
+          {onReset && (
+            <>
+              {' '}
+              <button type="button" className="text-btn" onClick={onReset}>
+                Reset form
+              </button>
+            </>
+          )}
         </p>
       </div>
       <div className="extract-country">
@@ -140,18 +157,22 @@ export function ExtractForm({
   const router = useRouter();
   const isProd = Boolean(service.health?.isProd);
 
-  const [[start, end], setMonths] = useState(() => initialMonths(country, requested));
-  const [when, setWhen] = useState<When>(start === end ? 'month' : 'range');
-  const [flow, setFlow] = useState<Flow>('ALL');
-  const [mode, setMode] = useState<Mode>('complete');
-  const [hsOpen, setHsOpen] = useState(false);
-  const [hsText, setHsText] = useState('');
-  const [tuneOpen, setTuneOpen] = useState(false);
-  const [tuning, setTuning] = useState<Tuning>(NO_TUNING);
+  // What is filled in stays for the visit, per country (and per months asked for in the link):
+  // leaving the page and coming back finds the form as it was
+  const draft = draftKey(country.code, requested);
+  const [[start, end], setMonths] = useGlobalState(`${draft}months`, () => initialMonths(country, requested));
+  const [when, setWhen] = useGlobalState<When>(`${draft}when`, start === end ? 'month' : 'range');
+  const [flow, setFlow] = useGlobalState<Flow>(`${draft}flow`, 'ALL');
+  const [mode, setMode] = useGlobalState<Mode>(`${draft}mode`, 'complete');
+  const [hsOpen, setHsOpen] = useGlobalState(`${draft}hsOpen`, false);
+  const [hsText, setHsText] = useGlobalState(`${draft}hsText`, '');
+  const [tuneOpen, setTuneOpen] = useGlobalState(`${draft}tuneOpen`, false);
+  const [tuning, setTuning] = useGlobalState<Tuning>(`${draft}tuning`, NO_TUNING);
+  const edited = useHasGlobalState(draft);
   // Sources publishing a dataset per year: read one dataset for every month instead (listed, or a new ID)
   const datasets = info.datasets ?? [];
-  const [datasetChoice, setDatasetChoice] = useState<string>(AUTO_DATASET);
-  const [newDataset, setNewDataset] = useState('');
+  const [datasetChoice, setDatasetChoice] = useGlobalState<string>(`${draft}dataset`, AUTO_DATASET);
+  const [newDataset, setNewDataset] = useGlobalState(`${draft}newDataset`, '');
   const listedDataset = datasets.find((d) => d.id === datasetChoice);
   const dataset = datasetChoice === AUTO_DATASET ? undefined : datasetChoice === NEW_DATASET ? newDataset.trim() : datasetChoice;
   const datasetError =
@@ -175,6 +196,28 @@ export function ExtractForm({
   const [error, setError] = useState('');
   const [showLinks, setShowLinks] = useState(false);
   const [showSourceFiles, setShowSourceFiles] = useState(false);
+  const [hsFileLoading, setHsFileLoading] = useState(false);
+  const [hsFileError, setHsFileError] = useState('');
+
+  /** Fills the HS code box from a picked file, one code per line */
+  async function loadHsFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    // Picking the same file again still fires a change
+    input.value = '';
+    if (!file) return;
+    setHsFileLoading(true);
+    setHsFileError('');
+    try {
+      const found = await readHsFile(file);
+      if (!found.length) throw new Error(`No HS codes found in the first column of ${file.name}.`);
+      if (found.length > MAX_HS_CODES) throw new Error(`${file.name} has ${fmtNumber(found.length)} codes; one run takes up to ${fmtNumber(MAX_HS_CODES)}.`);
+      setHsText(found.join('\n'));
+    } catch (err) {
+      setHsFileError(errorText(err));
+    } finally {
+      setHsFileLoading(false);
+    }
+  }
   // Set on Settings for this browser; read after loading so the page hydrates the same
   const [saveTo, setSaveTo] = useState<Destination>('storage');
   const [folder, setFolder] = useState<Dir | null>(null);
@@ -203,13 +246,18 @@ export function ExtractForm({
   const latest = latestPublished(country);
   const unpublished = latest ? months.filter((p) => p > latest) : [];
   const beforeStart = country.startPeriod ? months.filter((p) => p < country.startPeriod!) : [];
+  // What the months cost at the source (saved codes only), and the advice on which range to pick
+  const cost = useCodes ? null : costOf(info, effectiveMode);
+  const requests = cost && months.length ? requestCount(cost, months, flows.length) : null;
+  const advice = rangeAdvice(info, cost, flows.length);
+  const fullYears = batchesYears(info) ? wholeYears(months, country.startPeriod, latest) : null;
 
   // Sources publishing a file per year: one year is picked instead of months; the latest one's file
   // runs January to the latest month
   const downloadOnly = isDownloadOnly(info);
   const yearly = bulk && info.bulkDownload?.per === 'year';
   const years = yearsFor(country);
-  const [year, setYear] = useState(() => years[0] ?? '');
+  const [year, setYear] = useGlobalState(`${draft}year`, () => years[0] ?? '');
   const yearMonths = year ? periodRange(`${year}-01`, year === latest.slice(0, 4) ? latest : `${year}-12`) : [];
   const linkMonths = yearly ? yearMonths : months;
 
@@ -255,8 +303,10 @@ export function ExtractForm({
         options: runOptions,
         ...(dataset && { dataset }),
       });
-      // Its page finds it among the live runs before the database has it
-      await refreshLiveRuns();
+      // Its page finds it among the live runs before the database has it; its months are now extracting
+      await Promise.all([refreshLiveRuns(), refreshData()]);
+      // Started: the next visit begins from the months still due
+      forgetGlobalState(draft);
       router.push(`/extractions/${runId}`);
     } catch (err) {
       setError(errorText(err));
@@ -279,7 +329,7 @@ export function ExtractForm({
   return (
     <Panel i={1} className="extract-card">
       <div className="extract-form">
-        <FormHead countrySelect={countrySelect} downloadOnly={downloadOnly} sourceFiles={Boolean(sourceFiles)} />
+        <FormHead countrySelect={countrySelect} downloadOnly={downloadOnly} sourceFiles={Boolean(sourceFiles)} onReset={edited ? () => forgetGlobalState(draft) : undefined} />
 
         {yearly && info.bulkDownload && (
           <Field label="Year" htmlFor="year">
@@ -332,6 +382,28 @@ export function ExtractForm({
               {when === 'range' ? `${plural(months.length, 'month')}. ` : ''}
               {latest ? `${fmtMonth(latest)} is the latest the source should have out.` : ''}
               {country.startPeriod ? ` Data starts in ${fmtMonth(country.startPeriod)}.` : ''}
+            </p>
+          )}
+          {!bulk && advice && (
+            <p className="field-help range-advice">
+              <Icon.Info size={13} /> <span>
+                {advice}
+                {fullYears && (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => {
+                        setWhen('range');
+                        setMonths(fullYears);
+                      }}
+                    >
+                      Use {fmtRange(fullYears)} at no extra cost
+                    </button>
+                  </>
+                )}
+              </span>
             </p>
           )}
         </div>}
@@ -447,8 +519,7 @@ export function ExtractForm({
               )}
             </div>
 
-            {hsOpen && !sourceFiles && (
-              <div className="more-body">
+            <Collapsible open={hsOpen && !sourceFiles} className="more-body">
                 <textarea
                   rows={3}
                   className="control textarea mono"
@@ -458,12 +529,26 @@ export function ExtractForm({
                   spellCheck={false}
                   autoFocus
                 />
-                <p className="field-help">{info.hsCodeHint}</p>
-              </div>
-            )}
+                {hsFileError ? <p className="field-error">{hsFileError}</p> : null}
+                <p className="field-help">
+                  {info.hsCodeHint}{' '}
+                  <label className="text-btn">
+                    {hsFileLoading ? 'Reading…' : 'Load from a file'}
+                    <input type="file" accept={HS_FILE_ACCEPT} className="sr-only" disabled={hsFileLoading} onChange={(e) => loadHsFile(e.currentTarget)} />
+                  </label>{' '}
+                  (.csv, .txt or .xlsx; the first column is read, up to {fmtNumber(MAX_HS_CODES)} codes).
+                  {codes.length > 0 && (
+                    <>
+                      {' '}
+                      <button type="button" className="text-btn" onClick={() => setHsText('')}>
+                        Clear {plural(codes.length, 'code')}
+                      </button>
+                    </>
+                  )}
+                </p>
+            </Collapsible>
 
-            {tuneOpen && !sourceFiles && (
-              <div className="more-body">
+            <Collapsible open={tuneOpen && !sourceFiles} className="more-body">
                 <div className="tuning-grid">
                   {tuningField('concurrency', 'Parallel requests', 'at once', 1, 20)}
                   {tuningField('rateLimitPerMinute', 'Request rate', 'per min', 1, 600)}
@@ -478,8 +563,7 @@ export function ExtractForm({
                     </button>
                   )}
                 </p>
-              </div>
-            )}
+            </Collapsible>
 
           </>
         )}
@@ -607,6 +691,12 @@ export function ExtractForm({
                   </Link>
                 </dd>
               </div>
+              {requests !== null && (
+                <div>
+                  <dt>At the source</dt>
+                  <dd title="Requests the run makes, and the least time they take under the source's rate limit">{describeCost(requests, info)}</dd>
+                </div>
+              )}
               {dataset && (
                 <div>
                   <dt>Dataset</dt>

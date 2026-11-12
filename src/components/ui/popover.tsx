@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePresence } from './presence';
 
 /**
  * Open/close state for a trigger + floating panel pair.
- * Closes on outside click and Escape, and returns focus to the trigger.
+ * Closes on outside click and Escape, and returns focus to the trigger. Render the panel while
+ * `mounted`, passing `closing`, so it animates out.
  */
 export function usePopover<T extends HTMLElement = HTMLButtonElement>() {
   const [open, setOpen] = useState(false);
@@ -39,7 +41,8 @@ export function usePopover<T extends HTMLElement = HTMLButtonElement>() {
     };
   }, [open, close]);
 
-  return { open, setOpen, close, rootRef, triggerRef, panelRef };
+  const { mounted, closing } = usePresence(open);
+  return { open, setOpen, close, rootRef, triggerRef, panelRef, mounted, closing };
 }
 
 /** The floating panel; place inside a `.popover-root` wrapper next to the trigger */
@@ -49,10 +52,11 @@ export function PopoverPanel({
   children,
   style,
   className,
+  closing,
   ...rest
-}: { align?: 'start' | 'end'; width?: number | string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+}: { align?: 'start' | 'end'; width?: number | string; children: React.ReactNode; closing?: boolean } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`popover surface-pop popover-${align} ${className ?? ""}`} style={{ width, ...style }} {...rest}>
+    <div className={`popover surface-pop popover-${align} ${className ?? ''} ${closing ? 'closing' : ''}`} style={{ width, ...style }} {...rest}>
       {children}
     </div>
   );
@@ -68,6 +72,7 @@ export function FloatingPanel({
   panelRef,
   onDismiss,
   width,
+  closing,
   children,
   ...rest
 }: {
@@ -75,6 +80,7 @@ export function FloatingPanel({
   panelRef: React.RefObject<HTMLDivElement | null>;
   onDismiss: () => void;
   width: number;
+  closing?: boolean;
   children: React.ReactNode;
 } & React.HTMLAttributes<HTMLDivElement>) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -125,7 +131,7 @@ export function FloatingPanel({
   return createPortal(
     <div
       ref={panelRef}
-      className="popover surface-pop popover-floating"
+      className={`popover surface-pop popover-floating ${closing ? 'closing' : ''}`}
       style={{ position: 'fixed', top: pos.top, left: pos.left, width }}
       {...rest}
     >

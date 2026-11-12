@@ -63,6 +63,12 @@ export interface BulkDownload {
   source: CountrySource;
 }
 
+/** Requests for one flow over a month and over a calendar year */
+export interface RequestCost {
+  month: number;
+  year: number;
+}
+
 export interface ExtractorInfo {
   code: string;
   name: string;
@@ -90,6 +96,12 @@ export interface ExtractorInfo {
   allHsCodes?: boolean;
   /** Datasets the extract page offers to read instead of each year's own (none or missing: the source has no datasets) */
   datasets?: DatasetRef[];
+  /**
+   * Requests one flow takes for a month and for a whole calendar year, with each data set's saved
+   * codes (null or missing: nothing is extracted, or an older service). A year costing less than
+   * 12 months means one request returns several months.
+   */
+  requests?: { complete: RequestCost; test: RequestCost } | null;
   /** The source's own limits (older services don't say; null: the service setting applies) */
   concurrency?: number | null;
   rateLimitPerMinute?: number;

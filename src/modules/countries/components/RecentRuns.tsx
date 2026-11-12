@@ -3,6 +3,12 @@ import { Icon, Panel, StatusDot, When } from '@/components/ui';
 import { describePlan } from '@/lib/format';
 import { describeRun, fmtRecords, isRunning, RUN_TONE } from '@/lib/runs';
 import type { Run } from '@/lib/types';
+import { runs as runsQuery } from '@/modules/extractions/queries';
+
+/** RecentRuns read on the server, so the rest of the page shows without waiting for them */
+export async function RecentRunsLoader({ code, i }: { code: string; i?: number }) {
+  return <RecentRuns code={code} runs={await runsQuery.list(5, code)} i={i} />;
+}
 
 /** A country's latest extractions, each linking to its page */
 export function RecentRuns({ code, runs, i = 5 }: { code: string; runs: Run[]; i?: number }) {

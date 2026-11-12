@@ -1,21 +1,22 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { FileRowsSkeleton } from '@/components/skeletons';
 import { Badge, Button, CodeTag, ConfirmModal, Dock, Empty, FileIcon, Icon, Menu, revealStyle, SearchInput, When, type MenuItem } from '@/components/ui';
 import { useDownload } from '@/lib/download';
 import { displayName } from '@/lib/files';
 import { fmtMonth, fmtNumber, fmtSize, plural } from '@/lib/format';
-import { useAction, useChangedKeys } from '@/lib/hooks';
+import { useAction, useChangedKeys, useRefresh } from '@/lib/hooks';
 import { useServerFiles } from '@/lib/server-files';
 import { unwrap } from '@/lib/result';
-import type { Country, ExportFile, Share } from '@/lib/types';
+import { useGlobalState } from '@/lib/store';
+import type { Country, ExportFile } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 import { deleteFiles } from '../actions';
 import { useSaveToFolder } from '../hooks';
 import { MergeModal } from './MergeModal';
 import { ShareModal } from './ShareModal';
-import { SharesList } from './SharesList';
+import { SharesList, type SharesResult } from './SharesList';
 import { UploadModal } from './UploadModal';
 
 const RECENT = 'RECENT';
@@ -138,20 +139,18 @@ export function FilesBrowser({
   filesError,
   countries,
   shares,
-  sharesError,
   params,
 }: {
   /** Files in Storage (those kept on the extraction service are listed from this browser) */
   files: ExportFile[];
   filesError: string;
   countries: Country[];
-  shares: Share[];
-  sharesError: string;
+  /** Read only when the share links are opened, so the files show without waiting for them */
+  shares: SharesResult;
   /** The link's ?country=, ?test= or ?view=shares */
   params: ViewParams;
 }) {
-  const router = useRouter();
-  const [refreshing, startRefresh] = useTransition();
+  const { refreshing, refresh } = useRefresh();
   const server = useServerFiles();
   // Files kept on the server beside the stored ones, newest first; one in both places shows once, from the cloud
   const files = useMemo(() => {
@@ -167,10 +166,12 @@ export function FilesBrowser({
   const folder = useSaveToFolder(isOnServer);
   const { busy: deleting, run } = useAction();
 
-  const [view, setViewState] = useState(() => viewOf(params));
-  const [query, setQuery] = useState('');
+  // The view, folder and search stay for the visit; a link naming a view opens that one
+  const [lastView, setLastView] = useGlobalState<string | null>('files:view', null);
+  const [view, setViewState] = useState(() => (params.country || params.view || params.test ? viewOf(params) : (lastView ?? viewOf(params))));
+  const [query, setQuery] = useGlobalState(`files:query:${view}`, '');
   // The open folder, below the view's root (e.g. ["2026", "09", "IMPORT"])
-  const [dir, setDir] = useState<string[]>([]);
+  const [dir, setDir] = useGlobalState<string[]>(`files:dir:${view}`, []);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [toDelete, setToDelete] = useState<string[] | null>(null);
@@ -178,7 +179,7 @@ export function FilesBrowser({
   const [toMerge, setToMerge] = useState<ExportFile[] | null>(null);
   const [uploading, setUploading] = useState(false);
   // Split months opened to show their parts
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useGlobalState<Set<string>>('files:expanded', () => new Set());
 
   const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
 
@@ -194,12 +195,15 @@ export function FilesBrowser({
   const testGroups = groups.filter((g) => g.test);
   const mergedGroup = groups.find((g) => g.key === MERGED);
 
+  // The link follows the view; Next keeps its router in step with history calls, without fetching the page again
+  useEffect(() => {
+    setLastView(view);
+    window.history.replaceState(null, '', hrefOf(view));
+  }, [view, setLastView]);
+  // Each view opens at the folder it was left in; picking the open one again goes to its top
   const setView = (next: string) => {
-    setDir([]);
-    setQuery('');
+    if (next === view) setDir([]);
     setViewState(next);
-    // Next keeps its router in step with history calls, without fetching the page again
-    window.history.replaceState(null, '', hrefOf(next));
   };
   const group = groups.find((g) => g.key === view);
 
@@ -437,7 +441,11 @@ export function FilesBrowser({
     body = results.length ? <ul className="file-list">{rows(results.slice(0, 200), true)}</ul> : <Empty>No files match.</Empty>;
   } else if (view === SHARES) {
     head = { title: 'Shared links', desc: 'Links anyone can open to download files, without signing in', visible: [] };
-    body = <SharesList shares={shares} error={sharesError} />;
+    body = (
+      <Suspense fallback={<FileRowsSkeleton rows={4} />}>
+        <SharesList pending={shares} />
+      </Suspense>
+    );
   } else if (!group) {
     // Test files stay in their own section
     const recent = files.filter((f) => !f.test).slice(0, 30);
@@ -560,7 +568,7 @@ export function FilesBrowser({
 
           <Button size="sm" variant="ghost" icon={<Icon.Refresh size={14} />} loading={refreshing} onClick={() => {
             void server.refresh();
-            startRefresh(() => router.refresh());
+            refresh();
           }} className="side-refresh">
             Refresh
           </Button>

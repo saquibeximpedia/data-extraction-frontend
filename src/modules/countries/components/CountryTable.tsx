@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { AccessBadges } from '@/components/access-badges';
 import { Badge, CodeTag, Empty, FilterTabs, Icon, Panel, SearchInput, When } from '@/components/ui';
 import { fmtMonth, plural } from '@/lib/format';
 import { useRowLink } from '@/lib/hooks';
+import { useGlobalState } from '@/lib/store';
 import { extractHref } from '@/lib/runs';
 import type { Country, Run } from '@/lib/types';
 import { useExtractability } from '@/modules/service/store';
@@ -29,7 +29,8 @@ function StepLabel({ status }: { status: CountryStatus }) {
 function NextLink({ country, status }: { country: Country; status: CountryStatus }) {
   const extractability = useExtractability();
   const { next } = status;
-  const canExtract = country.kind === 'api' && extractability(country.code).ok;
+  const { ok, reason } = extractability(country.code);
+  const canExtract = country.kind === 'api' && ok;
 
   if (next.kind === 'running') {
     return (
@@ -43,6 +44,13 @@ function NextLink({ country, status }: { country: Country; status: CountryStatus
       <Link href={`/countries/${country.code}#upload`} className="btn btn-ghost btn-sm">
         Upload <Icon.ArrowRight size={13} />
       </Link>
+    );
+  }
+  if (reason === 'offline') {
+    return (
+      <span className="faint nowrap cell-note" title="Start the extraction service to extract">
+        Extractor offline
+      </span>
     );
   }
   return (
@@ -80,8 +88,10 @@ export function CountryTable({
 }) {
   const rows = useCountryRows(countries, running);
   const rowLink = useRowLink();
-  const [filter, setFilter] = useState<Filter>('all');
-  const [query, setQuery] = useState('');
+  // Kept for the visit, apart for the dashboard's short list and the full one
+  const keep = `countries:${limit ? 'short' : 'all'}:`;
+  const [filter, setFilter] = useGlobalState<Filter>(`${keep}filter`, 'all');
+  const [query, setQuery] = useGlobalState(`${keep}query`, '');
   const q = query.trim().toLowerCase();
   const needing = rows.filter((r) => r.status.next.kind !== 'done').length;
   const shown = rows.filter(

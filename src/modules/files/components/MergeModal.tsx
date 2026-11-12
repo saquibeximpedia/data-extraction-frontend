@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Field, Icon, Modal, ProgressBar, useToast } from '@/components/ui';
 import { fmtNumber, plural } from '@/lib/format';
+import { refreshData } from '@/lib/refresh';
 import { errorText } from '@/lib/result';
+import { runTask, useTask } from '@/lib/tasks';
 import type { ExportFile, MergeJob } from '@/lib/types';
 import { extractor } from '@/modules/service/client';
 
@@ -19,11 +21,20 @@ function suggestName(files: ExportFile[]): string {
   return [codes.slice(0, 4).join('_') || 'merge', span].filter(Boolean).join('_').slice(0, 80);
 }
 
+/** A merge followed in the background: its latest state, and why it couldn't be checked */
+interface Following {
+  job: MergeJob;
+  error: string;
+}
+
+/** Checks that fail in a row before the merge is no longer followed */
+const MAX_MISSES = 3;
+
 /**
  * Merges the selected extracted files into one dataset on the extraction service, saved under
  * merged/{name}/ (in parts of at most 9 lakh rows when big). Every column of every file is kept,
  * with the country, flow and month in front. Shows the merge's progress until it ends; closing
- * leaves it running on the service.
+ * (or leaving the page) leaves it running, and a toast says when it is done.
  */
 export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | null; onClose: () => void; onDone: () => void }) {
   const router = useRouter();
@@ -31,7 +42,15 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
   const [name, setName] = useState('');
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
-  const [job, setJob] = useState<MergeJob | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const followed = useTask<Following>(`merge:${jobId}`);
+  const job = jobId ? (followed?.progress.job ?? null) : null;
+  // The merge this dialog shows, if any: it says how that one ended, so no toast is needed then
+  const shown = useRef<string | null>(null);
+  shown.current = files ? jobId : null;
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => () => void (shown.current = null), []);
 
   const extracted = files?.filter((f) => f.origin === 'extracted') ?? [];
   const leftOut = (files?.length ?? 0) - extracted.length;
@@ -42,27 +61,35 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
     if (!files) return;
     setName(suggestName(files.filter((f) => f.origin === 'extracted')));
     setError('');
-    setJob(null);
+    setJobId(null);
   }, [files]);
 
-  // Follows a running merge until it ends
-  const running = job?.status === 'RUNNING';
-  useEffect(() => {
-    if (!job || job.status !== 'RUNNING') return;
-    const timer = setTimeout(async () => {
-      try {
-        const next = await extractor.mergeStatus(job.id);
-        setJob(next);
-        if (next.status === 'COMPLETED') {
-          router.refresh();
-          onDone();
+  /** Follows a merge until it ends, wherever the person goes meanwhile */
+  function follow(first: MergeJob) {
+    runTask<Following>(`merge:${first.id}`, { job: first, error: '' }, async (f, signal) => {
+      let misses = 0;
+      while (f.job.status === 'RUNNING' && !signal.aborted && misses < MAX_MISSES) {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        try {
+          f.job = await extractor.mergeStatus(f.job.id);
+          f.error = '';
+          misses = 0;
+        } catch (err) {
+          f.error = errorText(err);
+          misses++;
         }
-      } catch (err) {
-        setError(errorText(err));
       }
-    }, POLL_MS);
-    return () => clearTimeout(timer);
-  }, [job, router, onDone]);
+      const { job: end } = f;
+      if (end.status === 'COMPLETED') {
+        // The service wrote the merged files, past the server's cached list
+        void refreshData().then(() => router.refresh());
+        if (shown.current === end.id) done.current();
+        else toast('ok', `Merged ${end.name}`, `${fmtNumber(end.rowsWritten)} rows in merged/${end.name}/`, { label: 'Open', onClick: () => router.push('/files?view=merged') });
+      } else if (end.status === 'FAILED' && shown.current !== end.id) {
+        toast('err', `Merge ${end.name} failed`, end.error ?? 'Nothing was saved.');
+      }
+    });
+  }
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -70,7 +97,9 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
     setStarting(true);
     setError('');
     try {
-      setJob(await extractor.merge(extracted.map((f) => f.relativePath), name));
+      const started = await extractor.merge(extracted.map((f) => f.relativePath), name);
+      setJobId(started.id);
+      follow(started);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -78,8 +107,9 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
     }
   }
 
+  const running = job?.status === 'RUNNING';
   function close() {
-    if (running) toast('ok', 'The merge carries on', `It runs on the extraction service; ${job!.name} appears under Merged when it is done.`);
+    if (running) toast('ok', 'The merge carries on', `It runs on the extraction service; you'll be told here when ${job!.name} is done.`);
     onClose();
   }
 
@@ -117,7 +147,7 @@ export function MergeModal({ files, onClose, onDone }: { files: ExportFile[] | n
               </span>
             </div>
           )}
-          {error && <p className="field-error">{error}</p>}
+          {(error || followed?.progress.error) && <p className="field-error">{error || followed?.progress.error}</p>}
           <div className="modal-actions">
             {job.status === 'COMPLETED' ? (
               <Button

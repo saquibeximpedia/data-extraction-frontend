@@ -41,7 +41,7 @@ export function Select<T extends string>({
   searchable?: boolean;
   searchPlaceholder?: string;
 }) {
-  const { open, setOpen, close, rootRef, triggerRef } = usePopover();
+  const { open, setOpen, close, rootRef, triggerRef, mounted, closing } = usePopover();
   const listId = useId();
   const current = options.find((o) => o.value === value);
   const [active, setActive] = useState(0);
@@ -132,8 +132,8 @@ export function Select<T extends string>({
         </span>
       </button>
 
-      {open && (
-        <PopoverPanel width="100%" className="select-panel" style={{ minWidth: 240 }}>
+      {mounted && (
+        <PopoverPanel width="100%" className="select-panel" style={{ minWidth: 240 }} closing={closing}>
           {searchable && (
             <div className="select-search">
               <Icon.Search size={14} />

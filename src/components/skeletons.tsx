@@ -70,7 +70,7 @@ function FieldsSkeleton({ n = 3 }: { n?: number }) {
 }
 
 /** File rows: icon, name and facts */
-function FileRowsSkeleton({ rows = 6 }: { rows?: number }) {
+export function FileRowsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="file-list">
       {Array.from({ length: rows }, (_, i) => (
@@ -142,14 +142,21 @@ export function CountrySkeleton() {
             ))}
           </div>
         </section>
-        <section className="panel skeleton-rows">
-          <PanelHeadSkeleton title={150} />
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={34} radius={10} />
-          ))}
-        </section>
+        <RecentRunsSkeleton />
       </div>
     </>
+  );
+}
+
+/** A country's recent extractions, while they load */
+export function RecentRunsSkeleton() {
+  return (
+    <section className="panel skeleton-rows">
+      <PanelHeadSkeleton title={150} />
+      {[0, 1, 2].map((i) => (
+        <Skeleton key={i} height={34} radius={10} />
+      ))}
+    </section>
   );
 }
 

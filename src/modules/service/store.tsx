@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui';
 import { capitalize } from '@/lib/format';
+import { refreshData } from '@/lib/refresh';
 import { describeRun, mergeRuns } from '@/lib/runs';
 import type { ExtractorInfo, Me, Run, ServiceHealth } from '@/lib/types';
 import { getRun } from '@/modules/extractions/actions';
@@ -53,6 +54,11 @@ export function AppProvider({ me, children }: { me: Me; children: React.ReactNod
   // Runs seen running last time, to tell which ended; cleared without toasts when the service goes away
   const seen = useRef<Run[]>([]);
   const live = service.status === 'live';
+  // The service wrote runs, months and files past the server's cache: drop it, then reload the page's data
+  const reload = useCallback(() => {
+    const again = () => router.refresh();
+    refreshData().then(again, again);
+  }, [router]);
 
   const checkNow = useCallback(async () => {
     const url = serviceUrl();
@@ -109,7 +115,7 @@ export function AppProvider({ me, children }: { me: Me; children: React.ReactNod
     const ended = seen.current.filter((r) => !liveRuns.some((l) => l.id === r.id));
     seen.current = liveRuns;
     if (!ended.length) return;
-    router.refresh();
+    reload();
     const announce = async (id: string, retry = true) => {
       const result = await getRun(id);
       const run = result.ok ? result.data : null;
@@ -121,18 +127,18 @@ export function AppProvider({ me, children }: { me: Me; children: React.ReactNod
         label: ok ? 'Review' : 'Open',
         onClick: () => router.push(`/extractions/${run.id}`),
       });
-      if (!retry) router.refresh();
+      if (!retry) reload();
     };
     for (const run of ended) announce(run.id);
-  }, [liveRuns, router, toast]);
+  }, [liveRuns, router, toast, reload]);
 
   // The service publishes its countries once its database is set up: reload them when that happens
   const databaseOk = live ? service.health?.database?.ok : undefined;
   const databaseWasOk = useRef(databaseOk);
   useEffect(() => {
-    if (databaseOk && databaseWasOk.current === false) router.refresh();
+    if (databaseOk && databaseWasOk.current === false) reload();
     if (databaseOk !== undefined) databaseWasOk.current = databaseOk;
-  }, [databaseOk, router]);
+  }, [databaseOk, reload]);
 
   const value = useMemo<AppState>(
     () => ({

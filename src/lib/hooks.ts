@@ -1,9 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
+import { refreshData } from './refresh';
 import { errorText } from './result';
+
+/**
+ * Reloads the page's server data fresh, past the server's cache: for changes made elsewhere (the
+ * extraction service, an upload straight to Storage). `refreshing` is true until it has arrived.
+ */
+export function useRefresh() {
+  const router = useRouter();
+  const [refreshing, startRefresh] = useTransition();
+  const refresh = useCallback(
+    () =>
+      startRefresh(async () => {
+        await refreshData();
+        router.refresh();
+      }),
+    [router]
+  );
+  return { refreshing, refresh };
+}
 
 /**
  * Returns the keys whose signature changed since the last render (or are new),

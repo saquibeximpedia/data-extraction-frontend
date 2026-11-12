@@ -64,8 +64,9 @@ function AccountMenu() {
  */
 export function AppHeader() {
   const pathname = usePathname();
-  const { liveRuns, isAdmin } = useApp();
-  const tabs = [DASHBOARD, COUNTRIES, EXTRACT, EXTRACTIONS, FILES, ...(isAdmin ? [USERS] : [])];
+  const { liveRuns, isAdmin, service } = useApp();
+  // Nothing can be extracted while the service is offline; past extractions stay under Extractions
+  const tabs = [DASHBOARD, COUNTRIES, ...(service.status === 'offline' ? [] : [EXTRACT]), EXTRACTIONS, FILES, ...(isAdmin ? [USERS] : [])];
   const runningCount = liveRuns.length;
 
   // '/extract' must not light up for '/extractions'; no tab is lit on pages outside them (e.g. Settings)

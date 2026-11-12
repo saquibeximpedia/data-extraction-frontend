@@ -1,5 +1,6 @@
 import 'server-only';
 import type { User } from '@supabase/supabase-js';
+import { cached } from '@/lib/cache';
 import { conflict, HttpError } from '@/lib/http';
 import { admin, roleOf } from '@/lib/supabase/server';
 import type { AdminUser } from '@/lib/types';
@@ -29,9 +30,9 @@ async function allUsers(): Promise<User[]> {
 }
 
 /** Every account, by username */
-export async function listUsers(): Promise<AdminUser[]> {
+export const listUsers = cached(['users'], 'users.list', 60, async (): Promise<AdminUser[]> => {
   return (await allUsers()).map(describeUser).sort((a, b) => a.username.localeCompare(b.username));
-}
+});
 
 /**
  * The account with this username, or null. A username given in app_metadata wins over one taken

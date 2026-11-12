@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRefresh } from '@/lib/hooks';
 import type { Country } from '@/lib/types';
 import { useApp } from '@/modules/service/store';
 import { Button, Icon, Panel, StatusDot, useToast } from './ui';
@@ -31,7 +31,7 @@ export function ServiceNotice({ impact }: { impact: React.ReactNode }) {
 /** Checks the service again now (and reloads the page's data, with `refresh`), instead of waiting for the next 15-second check */
 export function RecheckButton({ size = 'md', label = 'Check again', variant = 'secondary', refresh }: { size?: 'sm' | 'md'; label?: string; variant?: 'primary' | 'secondary' | 'ghost'; refresh?: boolean }) {
   const { checkService } = useApp();
-  const router = useRouter();
+  const { refresh: reload } = useRefresh();
   const [checking, setChecking] = useState(false);
   return (
     <Button
@@ -41,7 +41,7 @@ export function RecheckButton({ size = 'md', label = 'Check again', variant = 's
       loading={checking}
       onClick={() => {
         setChecking(true);
-        if (refresh) router.refresh();
+        if (refresh) reload();
         checkService().finally(() => setChecking(false));
       }}
     >

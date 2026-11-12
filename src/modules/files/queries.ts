@@ -1,5 +1,6 @@
 import 'server-only';
 import { zipStream } from '@/lib/zip';
+import { cached } from '@/lib/cache';
 import { describe, TEST_FOLDER, UPLOAD_TYPES } from '@/lib/files';
 import { badRequest, HttpError, notFound, result } from '@/lib/http';
 import { fileUrlFor } from '@/lib/months';
@@ -91,8 +92,11 @@ async function assertBucket(): Promise<void> {
  * uploads through one-time signed upload links handed out here.
  */
 export const files = {
-  /** Every file, newest first (folders are walked: country → year → files); only a country's (with its test files), when given */
-  async list(countryCode?: string): Promise<ExportFile[]> {
+  /**
+   * Every file, newest first (folders are walked: country → year → files); only a country's (with its
+   * test files), when given. Walking takes a request per folder, so the list is kept for a minute.
+   */
+  list: cached(['files'], 'files.list', 60, async (countryCode?: string): Promise<ExportFile[]> => {
     const prefix = countryCode?.toUpperCase();
     // Files still list without their uploaders, e.g. before supabase/schema.sql adds file_meta
     const uploaders = await uploadersByPath(prefix).catch((err: Error) => {
@@ -130,7 +134,7 @@ export const files = {
     // Storage lists a missing bucket as empty: say so, or a wrong SUPABASE_BUCKET looks like "no files yet"
     if (!out.length) await assertBucket();
     return out.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
-  },
+  }),
 
   /** A link that downloads the file for the next `seconds` (five minutes by default) */
   async signedUrl(relativePath: string, seconds = 300): Promise<string> {

@@ -1,4 +1,5 @@
 import 'server-only';
+import { cached } from '@/lib/cache';
 import { badRequest, conflict, notFound, result } from '@/lib/http';
 import { nowPeriod, recentPublishedPeriods } from '@/lib/months';
 import { admin } from '@/lib/supabase/server';
@@ -95,7 +96,8 @@ async function getRow(code: string): Promise<ConfigRow> {
 
 /** Countries, their month status and admins' edits, in Supabase Postgres */
 export const countries = {
-  async list(): Promise<Country[]> {
+  // Month status and last runs change as extractions end, so this is kept for seconds only
+  list: cached(['countries', 'runs'], 'countries.list', 15, async (): Promise<Country[]> => {
     const db = admin();
     const [rows, months, lastRuns] = await Promise.all([
       result(db.from('country_config').select('*'), 'list countries'),
@@ -107,7 +109,7 @@ export const countries = {
     return (rows.data as ConfigRow[])
       .map((row) => build(row, byCountry.get(row.code) ?? [], lastRuns.get(row.code)))
       .sort((a, b) => a.name.localeCompare(b.name));
-  },
+  }),
 
   /** The country, or null when there is no such code */
   async find(code: string): Promise<Country | null> {
