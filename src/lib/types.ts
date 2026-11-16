@@ -96,6 +96,8 @@ export interface ExtractorInfo {
   allHsCodes?: boolean;
   /** Datasets the extract page offers to read instead of each year's own (none or missing: the source has no datasets) */
   datasets?: DatasetRef[];
+  /** Ways of extracting the country, the first being the default (none or missing: one way, no picker) */
+  methods?: ExtractionMethod[];
   /**
    * Requests one flow takes for a month and for a whole calendar year, with each data set's saved
    * codes (null or missing: nothing is extracted, or an older service). A year costing less than
@@ -176,6 +178,16 @@ export interface CountryPatch {
   startPeriod?: string;
   /** Download-only: a direct link to the month's Excel/CSV, with {YYYY} {YY} {MM} {M} for the month */
   fileUrl?: string;
+}
+
+/** One way of extracting a country, e.g. Mexico's "Banxico only" */
+export interface ExtractionMethod {
+  /** Sent as `method` when starting an extraction */
+  id: string;
+  label: string;
+  description: string;
+  /** Earliest month the method has data for, when later than the country's */
+  startPeriod?: string;
 }
 
 /** One flow's years `from`–`to` in one dataset of an open-data portal */

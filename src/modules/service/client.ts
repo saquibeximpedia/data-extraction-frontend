@@ -90,6 +90,8 @@ export interface ExtractBody {
   options?: RunOptions;
   /** A dataset ID read for every month instead of each year's dataset (one flow only) */
   dataset?: string;
+  /** One of the country's extraction methods (its first when left out) */
+  method?: string;
 }
 
 export const extractor = {

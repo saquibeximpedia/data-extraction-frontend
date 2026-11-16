@@ -185,6 +185,10 @@ export function ExtractForm({
           : listedDataset && flow !== listedDataset.flow
             ? `${listedDataset.id} holds ${flowName(listedDataset.flow)}: pick ${listedDataset.flow === 'IMPORT' ? 'Import' : 'Export'} above`
             : '';
+  // Countries with several ways of extracting (e.g. Mexico: Banxico + INEGI, or Banxico only); the first is the default
+  const methods = info.methods ?? [];
+  const [methodChoice, setMethod] = useGlobalState<string>(`${draft}method`, methods[0]?.id ?? '');
+  const method = methods.find((m) => m.id === methodChoice) ?? methods[0];
   const pickDataset = (value: string) => {
     setDatasetChoice(value);
     // A listed dataset holds one flow: the form follows it
@@ -246,6 +250,8 @@ export function ExtractForm({
   const latest = latestPublished(country);
   const unpublished = latest ? months.filter((p) => p > latest) : [];
   const beforeStart = country.startPeriod ? months.filter((p) => p < country.startPeriod!) : [];
+  // A method can start later than the country (e.g. Mexico's INEGI only, from 2023)
+  const beforeMethod = method?.startPeriod && !beforeStart.length ? months.filter((p) => p < method.startPeriod!) : [];
   // What the months cost at the source (saved codes only), and the advice on which range to pick
   const cost = useCodes ? null : costOf(info, effectiveMode);
   const requests = cost && months.length ? requestCount(cost, months, flows.length) : null;
@@ -302,6 +308,7 @@ export function ExtractForm({
         mode: effectiveMode,
         options: runOptions,
         ...(dataset && { dataset }),
+        ...(method && { method: method.id }),
       });
       // Its page finds it among the live runs before the database has it; its months are now extracting
       await Promise.all([refreshLiveRuns(), refreshData()]);
@@ -430,6 +437,17 @@ export function ExtractForm({
 
         {!bulk && (
           <>
+            {methods.length > 1 && method && (
+              <Field label="Method">
+                {methods.length <= 3 ? (
+                  <Segmented<string> label="Method" value={method.id} onChange={setMethod} options={methods.map((m) => ({ value: m.id, label: m.label }))} />
+                ) : (
+                  <Select id="method" value={method.id} onChange={setMethod} options={methods.map((m) => ({ value: m.id, label: m.label }))} />
+                )}
+                <p className="field-help">{method.description}</p>
+              </Field>
+            )}
+
             <div className="extract-grid">
               <Field label="Trade flow">
                 <Segmented<Flow>
@@ -661,6 +679,9 @@ export function ExtractForm({
           {!error &&
             beforeStart.length > 0 &&
             note('error', `${country.name} has data from ${fmtMonth(country.startPeriod!)} onwards; ${listMonths(beforeStart)} can't be extracted. Pick later months.`)}
+          {!error &&
+            beforeMethod.length > 0 &&
+            note('error', `${method!.label} has data from ${fmtMonth(method!.startPeriod!)} onwards; ${listMonths(beforeMethod)} can't be extracted with it. Pick later months or another method.`)}
           {!error && unpublished.length > 0 && note('warn', `${listMonths(unpublished)} may not be published yet, so the source can return no rows.`)}
 
           <div className="run-summary">
@@ -697,6 +718,12 @@ export function ExtractForm({
                   <dd title="Requests the run makes, and the least time they take under the source's rate limit">{describeCost(requests, info)}</dd>
                 </div>
               )}
+              {methods.length > 1 && method && (
+                <div>
+                  <dt>Method</dt>
+                  <dd>{method.label}</dd>
+                </div>
+              )}
               {dataset && (
                 <div>
                   <dt>Dataset</dt>
@@ -710,7 +737,7 @@ export function ExtractForm({
                 </div>
               )}
             </dl>
-            <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || tuningInvalid || Boolean(datasetError) || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
+            <Button variant="primary" icon={<Icon.Play />} loading={busy} disabled={!start || !end || beforeStart.length > 0 || beforeMethod.length > 0 || tuningInvalid || Boolean(datasetError) || (hsOpen && hsText.trim() !== '' && !codes.length)} onClick={run}>
               Run extraction{months.length > 1 ? ` · ${plural(months.length, 'month')}` : ''}
             </Button>
           </div>
