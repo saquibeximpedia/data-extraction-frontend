@@ -64,7 +64,8 @@ export function SourceFilesModal({
     };
   }, [open, countryCode, start, end, flow]);
 
-  const files = months?.flatMap((m) => m.files) ?? [];
+  // A file can be listed for both flows (one file holding exports and imports): count and download it once
+  const files = [...new Map((months?.flatMap((m) => m.files) ?? []).map((f) => [f.url, f])).values()];
   const missing = months?.filter((m) => !m.files.length) ?? [];
 
   async function downloadAll() {
